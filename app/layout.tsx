@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -17,6 +17,13 @@ export const metadata: Metadata = {
   description: "Generate beautiful gradient pill wallpapers",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0d0d0d",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -25,9 +32,11 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full overflow-hidden antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full min-h-dvh overflow-hidden antialiased`}
     >
-      <body className="flex h-full min-h-0 flex-col overflow-hidden">{children}</body>
+      <body className="flex min-h-dvh min-h-0 flex-col overflow-hidden supports-[min-height:100dvh]:min-h-dvh">
+        {children}
+      </body>
     </html>
   );
 }

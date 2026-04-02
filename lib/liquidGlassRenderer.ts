@@ -196,6 +196,7 @@ export function computePillGeometry(
   pillCrossRatio: number,
   mode: 'dark' | 'light',
   baseColor: string,
+  backgroundTint: number,
 ): PillGeometry {
   const centers: Array<[number, number]> = [];
   let halfW = 0, halfH = 0;
@@ -224,7 +225,7 @@ export function computePillGeometry(
     }
   }
 
-  const bgColor = wallpaperBackgroundFromBase(baseColor, mode);
+  const bgColor = wallpaperBackgroundFromBase(baseColor, mode, backgroundTint);
   const o = Math.min(1, Math.max(0, pillOpacity));
   return { centers, halfW, halfH, colors, pillOpacity: o, bgColor, mode };
 }

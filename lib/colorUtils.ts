@@ -5,16 +5,23 @@ export function hexToHsl(hex: string): [number, number, number] {
 
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
-  let h = 0, s = 0;
+  let h = 0,
+    s = 0;
   const l = (max + min) / 2;
 
   if (max !== min) {
     const d = max - min;
     s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
     switch (max) {
-      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
-      case g: h = ((b - r) / d + 2) / 6; break;
-      case b: h = ((r - g) / d + 4) / 6; break;
+      case r:
+        h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+        break;
+      case g:
+        h = ((b - r) / d + 2) / 6;
+        break;
+      case b:
+        h = ((r - g) / d + 4) / 6;
+        break;
     }
   }
 
@@ -28,26 +35,14 @@ export function hslToHex(h: number, s: number, l: number): string {
 
   const k = (n: number) => (n + h / 30) % 12;
   const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const f = (n: number) =>
+    l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
 
-  const toHex = (x: number) => Math.round(x * 255).toString(16).padStart(2, '0');
+  const toHex = (x: number) =>
+    Math.round(x * 255)
+      .toString(16)
+      .padStart(2, "0");
   return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
-}
-
-/** Canvas background tinted by the picked base hue (dark ≈ 5% L, light ≈ 94% L). */
-export function wallpaperBackgroundFromBase(
-  baseHex: string,
-  mode: 'dark' | 'light',
-): string {
-  const [h, s] = hexToHsl(baseHex);
-  if (mode === 'dark') {
-    const bgS = Math.min(s * 0.42, 28);
-    const bgL = 5.2;
-    return hslToHex(h, bgS, bgL);
-  }
-  const bgS = Math.min(s * 0.34, 20);
-  const bgL = 94.5;
-  return hslToHex(h, bgS, bgL);
 }
 
 /** Linear mix in HSL; hue takes shortest arc. t=0 → `from`, t=1 → `to`. */
@@ -61,27 +56,64 @@ function mixHexHsl(from: string, to: string, t: number): string {
   const h = h1 + dh * u;
   const s = s1 + (s2 - s1) * u;
   const l = l1 + (l2 - l1) * u;
-  return hslToHex(h, Math.min(100, Math.max(0, s)), Math.min(100, Math.max(0, l)));
+  return hslToHex(
+    h,
+    Math.min(100, Math.max(0, s)),
+    Math.min(100, Math.max(0, l)),
+  );
+}
+
+/**
+ * Canvas background tinted by the picked base hue (dark ≈ 5% L, light ≈ 94% L).
+ * @param tintAmount 0–10 (shown in UI as 0–100%). 0 = neutral; 1 ≈ standard; 2 = strong; 5 = high cap; 10 = extreme saturation.
+ */
+export function wallpaperBackgroundFromBase(
+  baseHex: string,
+  mode: "dark" | "light",
+  tintAmount = 1,
+): string {
+  const [h, s] = hexToHsl(baseHex);
+  const bgL = mode === "dark" ? 5.2 : 94.5;
+  const bgS = mode === "dark" ? Math.min(s * 0.42, 28) : Math.min(s * 0.34, 20);
+  const tinted = hslToHex(h, bgS, bgL);
+  const bgSStrong =
+    mode === "dark" ? Math.min(s * 0.88, 58) : Math.min(s * 0.72, 42);
+  const tintedStrong = hslToHex(h, bgSStrong, bgL);
+  const bgSMax =
+    mode === "dark" ? Math.min(s * 1.38, 94) : Math.min(s * 1.12, 78);
+  const tintedMax = hslToHex(h, bgSMax, bgL);
+  // 600–1000%: extra headroom toward near-full saturation at fixed L
+  const bgSExtreme =
+    mode === "dark" ? Math.min(s * 2.05, 100) : Math.min(s * 1.65, 96);
+  const tintedExtreme = hslToHex(h, bgSExtreme, bgL);
+
+  const t = Math.min(10, Math.max(0, tintAmount));
+  const neutral = mode === "dark" ? hslToHex(0, 0, 5.2) : hslToHex(0, 0, 94.5);
+  if (t <= 0) return neutral;
+  if (t < 1) return mixHexHsl(neutral, tinted, t);
+  if (t < 2) return mixHexHsl(tinted, tintedStrong, t - 1);
+  if (t < 5) return mixHexHsl(tintedStrong, tintedMax, (t - 2) / 3);
+  return mixHexHsl(tintedMax, tintedExtreme, (t - 5) / 5);
 }
 
 export function generatePillColors(
   baseHex: string,
   count: number,
-  direction: 'dark-to-light' | 'light-to-dark',
-  mode: 'dark' | 'light',
+  direction: "dark-to-light" | "light-to-dark",
+  mode: "dark" | "light",
   /**
    * Blends every pill from the first end toward the stack center (main ramp).
    * Clamped to 0.25–1: 0.25 = strongest pull to center; 1 = full gradient on that side.
    */
   firstPillIntensity = 0.9,
-  lastPillIntensity = 0.9
+  lastPillIntensity = 0.9,
 ): string[] {
   const [h, s] = hexToHsl(baseHex);
 
   // In dark mode: go from very dark (low L) to near-white (high L)
   // In light mode: similar range but slightly different endpoints
-  const darkEnd = mode === 'dark' ? 8 : 15;
-  const lightEnd = mode === 'dark' ? 92 : 95;
+  const darkEnd = mode === "dark" ? 8 : 15;
+  const lightEnd = mode === "dark" ? 92 : 95;
 
   const colors: string[] = [];
   for (let i = 0; i < count; i++) {
@@ -92,7 +124,8 @@ export function generatePillColors(
     colors.push(hslToHex(h, Math.min(s * sFactor, 100), l));
   }
 
-  const natural = direction === 'dark-to-light' ? colors : [...colors].reverse();
+  const natural =
+    direction === "dark-to-light" ? colors : [...colors].reverse();
 
   const a = Math.min(1, Math.max(0.25, firstPillIntensity));
   const b = Math.min(1, Math.max(0.25, lastPillIntensity));
@@ -123,12 +156,3 @@ export function generatePillColors(
 
   return out;
 }
-
-export const PRESETS = [
-  { name: 'Midnight', color: '#6B5CE7', mode: 'dark' as const, direction: 'dark-to-light' as const },
-  { name: 'Ocean', color: '#3B6CF7', mode: 'light' as const, direction: 'light-to-dark' as const },
-  { name: 'Crimson', color: '#E74C3C', mode: 'dark' as const, direction: 'dark-to-light' as const },
-  { name: 'Forest', color: '#2ECC71', mode: 'dark' as const, direction: 'dark-to-light' as const },
-  { name: 'Sunset', color: '#F39C12', mode: 'light' as const, direction: 'light-to-dark' as const },
-  { name: 'Rose', color: '#E91E8C', mode: 'light' as const, direction: 'dark-to-light' as const },
-];

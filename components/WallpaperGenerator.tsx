@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { generatePillColors, hexToHsl, PRESETS } from "@/lib/colorUtils";
+import { generatePillColors, hexToHsl } from "@/lib/colorUtils";
+import {
+  PRESETS,
+  PRESET_DEFAULTS,
+  type WallpaperPreset,
+} from "@/lib/wallpaperPresets";
 import {
   renderWallpaper,
   ASPECT_RATIOS,
@@ -34,20 +39,16 @@ interface Config {
   qualityIndex: number;
   liquidGlass: boolean;
   glass: GlassParams;
+  /** 0–10 internal = 0–100% in UI (same intensity curve); default 1 = 10% */
+  backgroundTint: number;
 }
 
 const DEFAULT: Config = {
-  baseColor: "#6B5CE7",
-  pillCount: 9,
-  pillOpacity: 1,
+  baseColor: "#6D28D9",
   mode: "dark",
   direction: "dark-to-light",
+  ...PRESET_DEFAULTS,
   stackDirection: "horizontal",
-  overlapRatio: 0.52,
-  pillMainRatio: 0.58,
-  pillCrossRatio: 0.4,
-  firstPillIntensity: 0.9,
-  lastPillIntensity: 0.9,
   arIndex: 0,
   qualityIndex: 1,
   liquidGlass: false,
@@ -62,8 +63,22 @@ function stackDirectionForAspectRatio(
   return h > w ? "vertical" : "horizontal";
 }
 
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    setMatches(mq.matches);
+    const onChange = () => setMatches(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [query]);
+  return matches;
+}
+
 export default function WallpaperGenerator() {
   const [config, setConfig] = useState<Config>(DEFAULT);
+  /** Which preset “Reset” reapplies; updated when a preset chip is chosen. */
+  const [selectedPresetIndex, setSelectedPresetIndex] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const glCanvasRef = useRef<HTMLCanvasElement>(null);
   const glRendererRef = useRef<LiquidGlassRenderer | null>(null);
@@ -94,6 +109,7 @@ export default function WallpaperGenerator() {
   const [h] = hexToHsl(config.baseColor);
   const accent = `hsl(${h}, 70%, 65%)`;
   const isPortrait = ar.h > ar.w;
+  const isMdUp = useMediaQuery("(min-width: 768px)");
 
   const pillGeoArgs = [
     config.pillCount,
@@ -105,6 +121,7 @@ export default function WallpaperGenerator() {
     config.pillCrossRatio,
     config.mode,
     config.baseColor,
+    config.backgroundTint,
   ] as const;
 
   // ── Canvas2D preview (non-glass) ──────────────────────────────
@@ -129,6 +146,7 @@ export default function WallpaperGenerator() {
       pillMainRatio: config.pillMainRatio,
       pillCrossRatio: config.pillCrossRatio,
       baseColor: config.baseColor,
+      backgroundTint: config.backgroundTint,
       liquidGlass: false,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -208,8 +226,9 @@ export default function WallpaperGenerator() {
         overlapRatio: config.overlapRatio,
         pillMainRatio: config.pillMainRatio,
         pillCrossRatio: config.pillCrossRatio,
-        baseColor: config.baseColor,
-        liquidGlass: false,
+      baseColor: config.baseColor,
+      backgroundTint: config.backgroundTint,
+      liquidGlass: false,
       });
       const link = document.createElement("a");
       link.download = `wallpapy-${exportW}x${exportH}.png`;
@@ -219,62 +238,95 @@ export default function WallpaperGenerator() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config, exportW, exportH]);
 
-  const applyPreset = (p: (typeof PRESETS)[0]) =>
+  const applyPreset = (p: WallpaperPreset) =>
     setConfig((prev) => ({
       ...prev,
       baseColor: p.color,
       mode: p.mode,
       direction: p.direction,
+      pillCount: p.pillCount,
+      pillOpacity: p.pillOpacity,
+      overlapRatio: p.overlapRatio,
+      pillMainRatio: p.pillMainRatio,
+      pillCrossRatio: p.pillCrossRatio,
+      firstPillIntensity: p.firstPillIntensity,
+      lastPillIntensity: p.lastPillIntensity,
+      backgroundTint: p.backgroundTint,
     }));
 
-  // Preview frame max size: viewport minus header, padding, and caption row (~9rem total).
-  const previewSlot = "(100dvh - 9rem)";
+  // Preview frame: desktop uses side-by-side layout; mobile stacks controls below — different vertical budget.
+  const previewSlot = isMdUp ? "(100dvh - 9rem)" : "(100dvh - 14rem)";
   const previewFrameStyle: React.CSSProperties = {
     aspectRatio: `${ar.w} / ${ar.h}`,
     maxHeight: `calc(${previewSlot})`,
-    maxWidth: isPortrait ? "min(50%, 100%)" : "100%",
-    width: `min(${isPortrait ? "min(50%, 100%)" : "100%"}, calc(${previewSlot} * ${ar.w / ar.h}))`,
+    maxWidth: isPortrait
+      ? isMdUp
+        ? "min(50%, 100%)"
+        : "100%"
+      : "100%",
+    width: isPortrait
+      ? isMdUp
+        ? `min(min(50%, 100%), calc(${previewSlot} * ${ar.w / ar.h}))`
+        : `min(100%, calc(${previewSlot} * ${ar.w / ar.h}))`
+      : `min(100%, calc(${previewSlot} * ${ar.w / ar.h}))`,
     height: "auto",
   };
 
   return (
-    <div className="fixed inset-0 z-0 flex flex-col overflow-hidden bg-[#0d0d0d] text-white">
+    <div className="fixed inset-0 z-0 flex min-h-dvh flex-col overflow-hidden bg-[#0d0d0d] text-white">
       {/* Header */}
-      <header className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-6 py-4">
-        <div className="flex items-center gap-3">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3 sm:px-6 sm:py-4">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <div
-            className="w-7 h-7 rounded-md flex items-center justify-center"
+            className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center"
             style={{ background: accent }}
           >
             <PillIcon />
           </div>
-          <span className="font-semibold tracking-tight text-[15px]">
+          <span className="truncate font-semibold tracking-tight text-[14px] sm:text-[15px]">
             Wallpapy
           </span>
         </div>
         <button
+          type="button"
           onClick={download}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium transition-all active:scale-[0.97]"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium transition-all active:scale-[0.97] sm:gap-2 sm:px-4 sm:text-[13px] touch-manipulation"
           style={{ background: accent, color: "#0d0d0d" }}
         >
           <DownloadIcon />
-          Export {exportW} × {exportH}
+          <span className="hidden sm:inline">Export {exportW} × {exportH}</span>
+          <span className="sm:hidden">Export</span>
         </button>
       </header>
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <aside className="flex h-full min-h-0 w-72 shrink-0 flex-col overflow-y-auto border-r border-white/[0.06] overscroll-contain">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
+        {/* Controls — below preview on mobile, left rail on md+ */}
+        <aside className="order-2 flex min-h-0 w-full flex-1 flex-col overflow-y-auto overscroll-contain border-t border-white/[0.06] pb-[max(1rem,env(safe-area-inset-bottom))] md:order-1 md:w-72 md:shrink-0 md:flex-none md:border-r md:border-t-0 md:pb-0">
           <Section label="Presets">
             <div className="grid grid-cols-3 gap-2">
-              {PRESETS.map((p) => (
+              {PRESETS.map((p, i) => (
                 <button
                   key={p.name}
-                  onClick={() => applyPreset(p)}
-                  className="group flex flex-col items-center gap-1.5 p-2 rounded-lg border border-white/[0.08] hover:border-white/20 transition-colors"
+                  type="button"
+                  onClick={() => {
+                    applyPreset(p);
+                    setSelectedPresetIndex(i);
+                  }}
+                  className={`group flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-colors ${
+                    selectedPresetIndex === i
+                      ? "border-white/25 bg-white/[0.07]"
+                      : "border-white/[0.08] hover:border-white/20"
+                  }`}
                 >
                   <div className="w-full h-7 rounded-md overflow-hidden flex">
-                    {generatePillColors(p.color, 5, p.direction, p.mode).map(
+                    {generatePillColors(
+                      p.color,
+                      5,
+                      p.direction,
+                      p.mode,
+                      p.firstPillIntensity,
+                      p.lastPillIntensity,
+                    ).map(
                       (c, i) => (
                         <div
                           key={i}
@@ -284,7 +336,13 @@ export default function WallpaperGenerator() {
                       ),
                     )}
                   </div>
-                  <span className="text-[11px] text-white/40 group-hover:text-white/70 transition-colors">
+                  <span
+                    className={`text-[11px] transition-colors ${
+                      selectedPresetIndex === i
+                        ? "text-white/75"
+                        : "text-white/40 group-hover:text-white/70"
+                    }`}
+                  >
                     {p.name}
                   </span>
                 </button>
@@ -324,6 +382,18 @@ export default function WallpaperGenerator() {
                 <div key={i} className="flex-1" style={{ background: c }} />
               ))}
             </div>
+            <div className="mt-3">
+              <Slider
+                label="Background tint"
+                value={config.backgroundTint}
+                min={0}
+                max={10}
+                step={0.01}
+                display={`${Math.round(config.backgroundTint * 10)}%`}
+                onChange={(v) => set("backgroundTint", v)}
+                accent={accent}
+              />
+            </div>
           </Section>
 
           <Section label="Mode">
@@ -349,6 +419,110 @@ export default function WallpaperGenerator() {
                 onChange={(v) => set("direction", v as Config["direction"])}
               />
             </div>
+          </Section>
+
+          <Section label="Stack Direction">
+            <div className="flex gap-2">
+              {(["horizontal", "vertical"] as const).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => set("stackDirection", d)}
+                  className={`flex-1 flex flex-col items-center gap-2 py-3 rounded-lg border transition-colors ${config.stackDirection === d ? "border-white/20 bg-white/[0.08] text-white" : "border-white/[0.06] text-white/30 hover:text-white/50"}`}
+                >
+                  {d === "horizontal" ? (
+                    <HStackIcon
+                      active={config.stackDirection === d}
+                      accent={accent}
+                    />
+                  ) : (
+                    <VStackIcon
+                      active={config.stackDirection === d}
+                      accent={accent}
+                    />
+                  )}
+                  <span className="text-[11px] capitalize">{d}</span>
+                </button>
+              ))}
+            </div>
+          </Section>
+
+          <Section label="Pills">
+            <Slider
+              label="Count"
+              value={config.pillCount}
+              min={3}
+              max={16}
+              step={1}
+              display={String(config.pillCount)}
+              onChange={(v) => set("pillCount", v)}
+              accent={accent}
+            />
+            <Slider
+              label="Overlap"
+              value={config.overlapRatio}
+              min={-1.2}
+              max={0.75}
+              step={0.01}
+              display={
+                config.overlapRatio <= 0
+                  ? `Gap ${Math.round(-config.overlapRatio * 100)}%`
+                  : `Overlap ${Math.round(config.overlapRatio * 100)}%`
+              }
+              onChange={(v) => set("overlapRatio", v)}
+              accent={accent}
+            />
+            <Slider
+              label={
+                config.stackDirection === "horizontal" ? "Height" : "Width"
+              }
+              value={config.pillMainRatio}
+              min={0.2}
+              max={0.95}
+              step={0.01}
+              display={`${Math.round(config.pillMainRatio * 100)}%`}
+              onChange={(v) => set("pillMainRatio", v)}
+              accent={accent}
+            />
+            <Slider
+              label="Thickness"
+              value={config.pillCrossRatio}
+              min={0.06}
+              max={0.5}
+              step={0.01}
+              display={`${Math.round(config.pillCrossRatio * 100)}%`}
+              onChange={(v) => set("pillCrossRatio", v)}
+              accent={accent}
+            />
+            <Slider
+              label="Opacity"
+              value={config.pillOpacity}
+              min={0}
+              max={1}
+              step={0.01}
+              display={`${Math.round(config.pillOpacity * 100)}%`}
+              onChange={(v) => set("pillOpacity", v)}
+              accent={accent}
+            />
+            <Slider
+              label="First side → center"
+              value={config.firstPillIntensity}
+              min={0.25}
+              max={1}
+              step={0.01}
+              display={`${Math.round(config.firstPillIntensity * 100)}%`}
+              onChange={(v) => set("firstPillIntensity", v)}
+              accent={accent}
+            />
+            <Slider
+              label="Last side → center"
+              value={config.lastPillIntensity}
+              min={0.25}
+              max={1}
+              step={0.01}
+              display={`${Math.round(config.lastPillIntensity * 100)}%`}
+              onChange={(v) => set("lastPillIntensity", v)}
+              accent={accent}
+            />
           </Section>
 
           {/* ── Liquid Glass Toggle ─────────────────────── */}
@@ -659,112 +833,9 @@ export default function WallpaperGenerator() {
             </>
           )}
 
-          <Section label="Stack Direction">
-            <div className="flex gap-2">
-              {(["horizontal", "vertical"] as const).map((d) => (
-                <button
-                  key={d}
-                  onClick={() => set("stackDirection", d)}
-                  className={`flex-1 flex flex-col items-center gap-2 py-3 rounded-lg border transition-colors ${config.stackDirection === d ? "border-white/20 bg-white/[0.08] text-white" : "border-white/[0.06] text-white/30 hover:text-white/50"}`}
-                >
-                  {d === "horizontal" ? (
-                    <HStackIcon
-                      active={config.stackDirection === d}
-                      accent={accent}
-                    />
-                  ) : (
-                    <VStackIcon
-                      active={config.stackDirection === d}
-                      accent={accent}
-                    />
-                  )}
-                  <span className="text-[11px] capitalize">{d}</span>
-                </button>
-              ))}
-            </div>
-          </Section>
-
-          <Section label="Pills">
-            <Slider
-              label="Count"
-              value={config.pillCount}
-              min={3}
-              max={16}
-              step={1}
-              display={String(config.pillCount)}
-              onChange={(v) => set("pillCount", v)}
-              accent={accent}
-            />
-            <Slider
-              label="Overlap"
-              value={config.overlapRatio}
-              min={-1.2}
-              max={0.75}
-              step={0.01}
-              display={
-                config.overlapRatio <= 0
-                  ? `Gap ${Math.round(-config.overlapRatio * 100)}%`
-                  : `Overlap ${Math.round(config.overlapRatio * 100)}%`
-              }
-              onChange={(v) => set("overlapRatio", v)}
-              accent={accent}
-            />
-            <Slider
-              label={
-                config.stackDirection === "horizontal" ? "Height" : "Width"
-              }
-              value={config.pillMainRatio}
-              min={0.2}
-              max={0.95}
-              step={0.01}
-              display={`${Math.round(config.pillMainRatio * 100)}%`}
-              onChange={(v) => set("pillMainRatio", v)}
-              accent={accent}
-            />
-            <Slider
-              label="Thickness"
-              value={config.pillCrossRatio}
-              min={0.06}
-              max={0.5}
-              step={0.01}
-              display={`${Math.round(config.pillCrossRatio * 100)}%`}
-              onChange={(v) => set("pillCrossRatio", v)}
-              accent={accent}
-            />
-            <Slider
-              label="Opacity"
-              value={config.pillOpacity}
-              min={0}
-              max={1}
-              step={0.01}
-              display={`${Math.round(config.pillOpacity * 100)}%`}
-              onChange={(v) => set("pillOpacity", v)}
-              accent={accent}
-            />
-            <Slider
-              label="First side → center"
-              value={config.firstPillIntensity}
-              min={0.25}
-              max={1}
-              step={0.01}
-              display={`${Math.round(config.firstPillIntensity * 100)}%`}
-              onChange={(v) => set("firstPillIntensity", v)}
-              accent={accent}
-            />
-            <Slider
-              label="Last side → center"
-              value={config.lastPillIntensity}
-              min={0.25}
-              max={1}
-              step={0.01}
-              display={`${Math.round(config.lastPillIntensity * 100)}%`}
-              onChange={(v) => set("lastPillIntensity", v)}
-              accent={accent}
-            />
-          </Section>
-
           <Section label="Aspect Ratio">
-            <div className="grid grid-cols-5 gap-1.5">
+            <div className="-mx-4 overflow-x-auto px-4 pb-0.5 md:mx-0 md:overflow-visible md:px-0">
+              <div className="grid min-w-[300px] grid-cols-5 gap-1.5 sm:min-w-0">
               {ASPECT_RATIOS.map((a, i) => (
                 <button
                   key={a.label}
@@ -788,6 +859,7 @@ export default function WallpaperGenerator() {
                   </span>
                 </button>
               ))}
+              </div>
             </div>
           </Section>
 
@@ -810,19 +882,20 @@ export default function WallpaperGenerator() {
 
           <div className="p-4 mt-auto">
             <button
-              onClick={() => setConfig(DEFAULT)}
+              type="button"
+              onClick={() => applyPreset(PRESETS[selectedPresetIndex])}
               className="w-full py-2 rounded-lg text-[13px] text-white/25 hover:text-white/45 border border-white/[0.05] hover:border-white/10 transition-colors"
             >
-              Reset all
+              Reset to {PRESETS[selectedPresetIndex].name}
             </button>
           </div>
         </aside>
 
-        {/* Preview — always visible; never scrolled out of view */}
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-hidden bg-[#0a0a0a] p-6 md:p-8">
-          <div className="flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-center gap-3">
+        {/* Preview — top on mobile, right on desktop */}
+        <main className="order-1 flex min-h-0 min-w-0 shrink-0 flex-col items-center justify-center overflow-hidden bg-[#0a0a0a] px-4 py-4 sm:p-6 md:order-2 md:max-h-none md:flex-1 md:shrink md:px-8 md:py-8 max-h-[min(52vh,560px)] md:max-h-none">
+          <div className="flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-center gap-2 sm:gap-3">
             <div
-              className="box-border overflow-hidden rounded-xl border-2 border-white/[0.24] shadow-2xl shadow-black/50"
+              className="box-border w-full max-w-full overflow-hidden rounded-xl border-2 border-white/[0.24] shadow-2xl shadow-black/50"
               style={previewFrameStyle}
             >
               {/* Canvas2D */}
@@ -838,7 +911,7 @@ export default function WallpaperGenerator() {
                 style={{ display: config.liquidGlass ? "block" : "none" }}
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1 px-1">
               <span className="text-[11px] text-white/20 font-mono">
                 {exportW} × {exportH}
               </span>

@@ -14,6 +14,8 @@ export interface WallpaperConfig {
   pillCrossRatio: number;
   /** Picked color — used to tint the canvas background */
   baseColor: string;
+  /** 0–10 internal; UI shows 0–100% (×10) */
+  backgroundTint: number;
   liquidGlass: boolean;
 }
 
@@ -24,14 +26,14 @@ export function renderWallpaper(canvas: HTMLCanvasElement, config: WallpaperConf
   if (!ctx) return;
 
   const { width, height, pillCount, colors, pillOpacity, mode, stackDirection,
-    overlapRatio, pillMainRatio, pillCrossRatio, baseColor, liquidGlass } = config;
+    overlapRatio, pillMainRatio, pillCrossRatio, baseColor, backgroundTint, liquidGlass } = config;
   const alpha = Math.min(1, Math.max(0, pillOpacity));
 
   // Scale factor so all effects look correct at any resolution
   const scale = Math.min(width, height) / 1080;
 
   // --- Background (tinted by base color) ---
-  ctx.fillStyle = wallpaperBackgroundFromBase(baseColor, mode);
+  ctx.fillStyle = wallpaperBackgroundFromBase(baseColor, mode, backgroundTint);
   ctx.fillRect(0, 0, width, height);
 
   // Build pill geometry
