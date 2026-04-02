@@ -50,11 +50,31 @@ export function wallpaperBackgroundFromBase(
   return hslToHex(h, bgS, bgL);
 }
 
+/** Linear mix in HSL; hue takes shortest arc. t=0 → `from`, t=1 → `to`. */
+function mixHexHsl(from: string, to: string, t: number): string {
+  const u = Math.min(1, Math.max(0, t));
+  const [h1, s1, l1] = hexToHsl(from);
+  const [h2, s2, l2] = hexToHsl(to);
+  let dh = h2 - h1;
+  if (dh > 180) dh -= 360;
+  if (dh < -180) dh += 360;
+  const h = h1 + dh * u;
+  const s = s1 + (s2 - s1) * u;
+  const l = l1 + (l2 - l1) * u;
+  return hslToHex(h, Math.min(100, Math.max(0, s)), Math.min(100, Math.max(0, l)));
+}
+
 export function generatePillColors(
   baseHex: string,
   count: number,
   direction: 'dark-to-light' | 'light-to-dark',
-  mode: 'dark' | 'light'
+  mode: 'dark' | 'light',
+  /**
+   * Blends every pill from the first end toward the stack center (main ramp).
+   * Clamped to 0.25–1: 0.25 = strongest pull to center; 1 = full gradient on that side.
+   */
+  firstPillIntensity = 0.9,
+  lastPillIntensity = 0.9
 ): string[] {
   const [h, s] = hexToHsl(baseHex);
 
@@ -65,14 +85,43 @@ export function generatePillColors(
 
   const colors: string[] = [];
   for (let i = 0; i < count; i++) {
-    const t = i / (count - 1);
+    const t = count > 1 ? i / (count - 1) : 0;
     const l = darkEnd + t * (lightEnd - darkEnd);
     // Reduce saturation at extremes for more natural feel
     const sFactor = 1 - Math.abs(t - 0.5) * 0.3;
     colors.push(hslToHex(h, Math.min(s * sFactor, 100), l));
   }
 
-  return direction === 'dark-to-light' ? colors : [...colors].reverse();
+  const natural = direction === 'dark-to-light' ? colors : [...colors].reverse();
+
+  const a = Math.min(1, Math.max(0.25, firstPillIntensity));
+  const b = Math.min(1, Math.max(0.25, lastPillIntensity));
+
+  if (count <= 1) {
+    return natural;
+  }
+
+  const out = [...natural];
+
+  // Middle pill(s) = "main" anchor color(s) on the ramp (same hue as base).
+  const centerLo = Math.floor((count - 1) / 2);
+  const centerHi = Math.ceil((count - 1) / 2);
+
+  if (count === 2) {
+    const mid = mixHexHsl(natural[0], natural[1], 0.5);
+    out[0] = mixHexHsl(mid, natural[0], a);
+    out[1] = mixHexHsl(mid, natural[1], b);
+    return out;
+  }
+
+  for (let i = 0; i < centerLo; i++) {
+    out[i] = mixHexHsl(natural[centerLo], natural[i], a);
+  }
+  for (let i = centerHi + 1; i < count; i++) {
+    out[i] = mixHexHsl(natural[centerHi], natural[i], b);
+  }
+
+  return out;
 }
 
 export const PRESETS = [

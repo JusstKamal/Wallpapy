@@ -26,6 +26,10 @@ interface Config {
   overlapRatio: number;
   pillMainRatio: number;
   pillCrossRatio: number;
+  /** 0.25–1: blend toward center (25% min, 100% max) */
+  firstPillIntensity: number;
+  /** 0.25–1 */
+  lastPillIntensity: number;
   arIndex: number;
   qualityIndex: number;
   liquidGlass: boolean;
@@ -42,6 +46,8 @@ const DEFAULT: Config = {
   overlapRatio: 0.52,
   pillMainRatio: 0.58,
   pillCrossRatio: 0.4,
+  firstPillIntensity: 0.9,
+  lastPillIntensity: 0.9,
   arIndex: 0,
   qualityIndex: 1,
   liquidGlass: false,
@@ -76,6 +82,8 @@ export default function WallpaperGenerator() {
     config.pillCount,
     config.direction,
     config.mode,
+    config.firstPillIntensity,
+    config.lastPillIntensity,
   );
   const { width: exportW, height: exportH } = getPixelDimensions(
     config.arIndex,
@@ -731,6 +739,26 @@ export default function WallpaperGenerator() {
               step={0.01}
               display={`${Math.round(config.pillOpacity * 100)}%`}
               onChange={(v) => set("pillOpacity", v)}
+              accent={accent}
+            />
+            <Slider
+              label="First side → center"
+              value={config.firstPillIntensity}
+              min={0.25}
+              max={1}
+              step={0.01}
+              display={`${Math.round(config.firstPillIntensity * 100)}%`}
+              onChange={(v) => set("firstPillIntensity", v)}
+              accent={accent}
+            />
+            <Slider
+              label="Last side → center"
+              value={config.lastPillIntensity}
+              min={0.25}
+              max={1}
+              step={0.01}
+              display={`${Math.round(config.lastPillIntensity * 100)}%`}
+              onChange={(v) => set("lastPillIntensity", v)}
               accent={accent}
             />
           </Section>
