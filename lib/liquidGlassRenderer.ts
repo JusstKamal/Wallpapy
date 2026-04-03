@@ -1,8 +1,24 @@
-import { wallpaperBackgroundFromBase } from './colorUtils';
-import { RenderPass, computeGaussianWeights, hexToVec3 } from './glUtils';
-import { VERTEX_SRC, BG_FRAG_SRC, VBLUR_FRAG_SRC, HBLUR_FRAG_SRC, MAIN_FRAG_SRC } from './liquidGlassShaders';
+import { wallpaperBackgroundFromBase } from "./colorUtils";
+import { RenderPass, computeGaussianWeights, hexToVec3 } from "./glUtils";
+import { QUALITY_LEVELS } from "./pillRenderer";
+import {
+  VERTEX_SRC,
+  BG_FRAG_SRC,
+  VBLUR_FRAG_SRC,
+  HBLUR_FRAG_SRC,
+  MAIN_FRAG_SRC,
+} from "./liquidGlassShaders";
+
+/**
+ * Most glass slider values are defined as if `min(canvasW, canvasH) === this` (1080p tier short side).
+ * Scale those to the actual framebuffer so blur/dispersion/shadow stay consistent when resolution
+ * changes. Refraction thickness is stored as % of pill short side and is converted to pixels at
+ * render time from geometry.
+ */
+export const GLASS_PARAMS_REF_MIN_SIDE = QUALITY_LEVELS[0].base;
 
 export interface GlassParams {
+  /** Refraction edge band width as 0–100% of pill short side (`2 * min(halfW, halfH)`). */
   refThickness: number;
   refFactor: number;
   refDispersion: number;
@@ -14,7 +30,7 @@ export interface GlassParams {
   glareConvergence: number;
   glareOppositeFactor: number;
   glareFactor: number;
-  glareAngle: number;   // degrees
+  glareAngle: number; // degrees
   blurRadius: number;
   blurEdge: boolean;
   shadowExpand: number;
@@ -23,21 +39,19 @@ export interface GlassParams {
   shadowY: number;
 }
 
-/**
- * Scale pixel-based glass params so export at `exportW` matches on-screen preview
- * (preview is rendered at `previewBufferW` physical pixels — blur/thickness are in px).
- */
-export function scaleGlassParamsForExport(
+/** Scale stored glass params from reference short-side to target canvas (same formula for preview + export). */
+export function scaleGlassParamsToCanvas(
   params: GlassParams,
-  previewBufferW: number,
-  exportW: number,
+  canvasW: number,
+  canvasH: number,
+  refMinSide: number = GLASS_PARAMS_REF_MIN_SIDE,
 ): GlassParams {
-  const pw = Math.max(1, previewBufferW);
-  const s = exportW / pw;
+  const minSide = Math.max(1, Math.min(canvasW, canvasH));
+  const ref = Math.max(1, refMinSide);
+  const s = minSide / ref;
   if (Math.abs(s - 1) < 1e-6) return params;
   return {
     ...params,
-    refThickness: params.refThickness * s,
     refDispersion: params.refDispersion * s,
     blurRadius: Math.max(1, Math.round(params.blurRadius * s)),
     refFresnelRange: params.refFresnelRange * s,
@@ -49,35 +63,35 @@ export function scaleGlassParamsForExport(
 }
 
 export const GLASS_DEFAULTS: GlassParams = {
-  refThickness: 20,
-  refFactor: 1.4,
-  refDispersion: 7,
-  refFresnelRange: 30,
-  refFresnelFactor: 20,
-  refFresnelHardness: 20,
-  glareRange: 30,
-  glareHardness: 20,
-  glareConvergence: 50,
+  refThickness: 32,
+  refFactor: 2,
+  refDispersion: 20,
+  refFresnelRange: 100,
+  refFresnelFactor: 60,
+  refFresnelHardness: 0,
+  glareRange: 50,
+  glareHardness: 0,
+  glareConvergence: 100,
   glareOppositeFactor: 80,
-  glareFactor: 90,
+  glareFactor: 120,
   glareAngle: -45,
-  blurRadius: 12,
+  blurRadius: 15,
   blurEdge: true,
-  shadowExpand: 25,
+  shadowExpand: 50,
   shadowFactor: 15,
   shadowX: 0,
-  shadowY: -10,
+  shadowY: 0,
 };
 
 export interface PillGeometry {
-  centers: Array<[number, number]>;  // screen px, canvas coords (y=0 at top)
+  centers: Array<[number, number]>; // screen px, canvas coords (y=0 at top)
   halfW: number;
   halfH: number;
   colors: string[];
   /** 0–1, applied to all pills */
   pillOpacity: number;
   bgColor: string;
-  mode: 'dark' | 'light';
+  mode: "dark" | "light";
 }
 
 export class LiquidGlassRenderer {
@@ -90,24 +104,41 @@ export class LiquidGlassRenderer {
   private h = 0;
 
   constructor(canvas: HTMLCanvasElement) {
-    const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true });
-    if (!gl) throw new Error('WebGL2 not supported');
-    const ext = gl.getExtension('EXT_color_buffer_float');
-    if (!ext) throw new Error('EXT_color_buffer_float required');
+    const gl = canvas.getContext("webgl2", { preserveDrawingBuffer: true });
+    if (!gl) throw new Error("WebGL2 not supported");
+    const ext = gl.getExtension("EXT_color_buffer_float");
+    if (!ext) throw new Error("EXT_color_buffer_float required");
     this.gl = gl;
 
     const vert = VERTEX_SRC;
-    this.bgPass    = new RenderPass(gl, { vertex: vert, fragment: BG_FRAG_SRC },    false);
-    this.vblurPass = new RenderPass(gl, { vertex: vert, fragment: VBLUR_FRAG_SRC }, false);
-    this.hblurPass = new RenderPass(gl, { vertex: vert, fragment: HBLUR_FRAG_SRC }, false);
-    this.mainPass  = new RenderPass(gl, { vertex: vert, fragment: MAIN_FRAG_SRC },  true);
+    this.bgPass = new RenderPass(
+      gl,
+      { vertex: vert, fragment: BG_FRAG_SRC },
+      false,
+    );
+    this.vblurPass = new RenderPass(
+      gl,
+      { vertex: vert, fragment: VBLUR_FRAG_SRC },
+      false,
+    );
+    this.hblurPass = new RenderPass(
+      gl,
+      { vertex: vert, fragment: HBLUR_FRAG_SRC },
+      false,
+    );
+    this.mainPass = new RenderPass(
+      gl,
+      { vertex: vert, fragment: MAIN_FRAG_SRC },
+      true,
+    );
 
     this.resize(canvas.width, canvas.height);
   }
 
   resize(w: number, h: number) {
     if (this.w === w && this.h === h) return;
-    this.w = w; this.h = h;
+    this.w = w;
+    this.h = h;
     const gl = this.gl;
     gl.viewport(0, 0, w, h);
     this.bgPass.resize(w, h);
@@ -177,11 +208,16 @@ export class LiquidGlassRenderer {
 
     // Pass 4: glass composition
     gl.viewport(0, 0, w, h);
+    const pillShortPx = 2 * Math.min(geo.halfW, geo.halfH);
+    const refThicknessPx = Math.max(
+      1e-3,
+      (Math.max(0, Math.min(100, params.refThickness)) / 100) * pillShortPx,
+    );
     this.mainPass.render({
       ...sharedUniforms,
       u_bg: bgTex,
       u_blurredBg: this.hblurPass.outputTexture!,
-      u_refThickness: params.refThickness,
+      u_refThickness: refThicknessPx,
       u_refFactor: params.refFactor,
       u_refDispersion: params.refDispersion,
       u_refFresnelRange: params.refFresnelRange,
@@ -212,27 +248,30 @@ export function computePillGeometry(
   pillCount: number,
   colors: string[],
   pillOpacity: number,
-  stackDirection: 'horizontal' | 'vertical',
+  stackDirection: "horizontal" | "vertical",
   overlapRatio: number,
   pillMainRatio: number,
   pillCrossRatio: number,
-  mode: 'dark' | 'light',
+  mode: "dark" | "light",
   baseColor: string,
   backgroundTint: number,
+  backgroundBrightness: number,
   pillStagger: number,
 ): PillGeometry {
   const centers: Array<[number, number]> = [];
-  let halfW = 0, halfH = 0;
+  let halfW = 0,
+    halfH = 0;
   const stagger = Math.max(-0.35, Math.min(0.35, pillStagger));
 
-  if (stackDirection === 'horizontal') {
+  if (stackDirection === "horizontal") {
     const pillH = height * pillMainRatio;
     const pillW = pillH * pillCrossRatio;
     const step = pillW * (1 - overlapRatio);
     const totalW = pillW + step * (pillCount - 1);
     const startX = (width - totalW) / 2;
     const baseY = height * 0.5 - pillH / 2;
-    halfW = pillW / 2; halfH = pillH / 2;
+    halfW = pillW / 2;
+    halfH = pillH / 2;
     for (let i = 0; i < pillCount; i++) {
       const alt = i % 2 === 0 ? 1 : -1;
       const y = baseY + alt * stagger * pillH;
@@ -245,7 +284,8 @@ export function computePillGeometry(
     const totalH = pillH + step * (pillCount - 1);
     const startY = (height - totalH) / 2;
     const baseX = width * 0.5 - pillW / 2;
-    halfW = pillW / 2; halfH = pillH / 2;
+    halfW = pillW / 2;
+    halfH = pillH / 2;
     for (let i = 0; i < pillCount; i++) {
       const alt = i % 2 === 0 ? 1 : -1;
       const x = baseX + alt * stagger * pillW;
@@ -253,7 +293,12 @@ export function computePillGeometry(
     }
   }
 
-  const bgColor = wallpaperBackgroundFromBase(baseColor, mode, backgroundTint);
+  const bgColor = wallpaperBackgroundFromBase(
+    baseColor,
+    mode,
+    backgroundTint,
+    backgroundBrightness,
+  );
   const o = Math.min(1, Math.max(0, pillOpacity));
   return { centers, halfW, halfH, colors, pillOpacity: o, bgColor, mode };
 }

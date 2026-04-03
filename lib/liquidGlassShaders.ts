@@ -1,4 +1,4 @@
-export const VERTEX_SRC = /* glsl */`#version 300 es
+export const VERTEX_SRC = /* glsl */ `#version 300 es
 in vec4 a_position;
 out vec2 v_uv;
 void main() {
@@ -6,7 +6,7 @@ void main() {
   gl_Position = a_position;
 }`;
 
-export const BG_FRAG_SRC = /* glsl */`#version 300 es
+export const BG_FRAG_SRC = /* glsl */ `#version 300 es
 precision highp float;
 #define MAX_PILLS 20
 
@@ -65,7 +65,7 @@ void main() {
   fragColor = vec4(col - vec3(shadow), 1.0);
 }`;
 
-export const VBLUR_FRAG_SRC = /* glsl */`#version 300 es
+export const VBLUR_FRAG_SRC = /* glsl */ `#version 300 es
 precision highp float;
 #define MAX_BLUR_RADIUS 200
 in vec2 v_uv;
@@ -86,7 +86,7 @@ void main() {
   fragColor = col;
 }`;
 
-export const HBLUR_FRAG_SRC = /* glsl */`#version 300 es
+export const HBLUR_FRAG_SRC = /* glsl */ `#version 300 es
 precision highp float;
 #define MAX_BLUR_RADIUS 200
 in vec2 v_uv;
@@ -107,7 +107,7 @@ void main() {
   fragColor = col;
 }`;
 
-export const MAIN_FRAG_SRC = /* glsl */`#version 300 es
+export const MAIN_FRAG_SRC = /* glsl */ `#version 300 es
 precision highp float;
 #define PI 3.14159265359
 #define MAX_PILLS 20

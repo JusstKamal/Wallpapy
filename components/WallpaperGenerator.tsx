@@ -35,7 +35,7 @@ import {
   type GlassParams,
   GLASS_DEFAULTS,
   computePillGeometry,
-  scaleGlassParamsForExport,
+  scaleGlassParamsToCanvas,
 } from "@/lib/liquidGlassRenderer";
 import {
   canvasToDataURLWithBitDepth,
@@ -67,6 +67,8 @@ interface Config {
   glass: GlassParams;
   /** 0–10 internal = 0–100% in UI (same intensity curve); default 1 = 10% */
   backgroundTint: number;
+  /** -1..1 where negative darkens and positive brightens the background. */
+  backgroundBrightness: number;
   /** Alternating per-pill stagger (fraction of pill thickness); sign flips wobble direction */
   pillStagger: number;
   /** RGB export quantization (PNG samples stay 8-bit; simulates 10/12-bit precision). */
@@ -201,6 +203,7 @@ export default function WallpaperGenerator() {
     config.mode,
     baseColor,
     config.backgroundTint,
+    config.backgroundBrightness,
     config.pillStagger,
   ] as const;
 
@@ -254,6 +257,7 @@ export default function WallpaperGenerator() {
       pillCrossRatio: config.pillCrossRatio,
       baseColor,
       backgroundTint: config.backgroundTint,
+      backgroundBrightness: config.backgroundBrightness,
       pillStagger: config.pillStagger,
       liquidGlass: false,
     });
@@ -289,7 +293,8 @@ export default function WallpaperGenerator() {
     }
 
     const geo = computePillGeometry(cw, ch, ...pillGeoArgs);
-    glRendererRef.current.render(geo, config.glass, dpr);
+    const glassForPreview = scaleGlassParamsToCanvas(config.glass, cw, ch);
+    glRendererRef.current.render(geo, glassForPreview, dpr);
     requestAnimationFrame(() => syncDualPreview());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config, syncDualPreview]);
@@ -383,14 +388,10 @@ export default function WallpaperGenerator() {
       offscreen.height = exportH;
       let renderer: LiquidGlassRenderer | null = null;
       try {
-        const previewBufW =
-          glCanvasRef.current?.width && glCanvasRef.current.width > 0
-            ? glCanvasRef.current.width
-            : exportW;
-        const glassForExport = scaleGlassParamsForExport(
+        const glassForExport = scaleGlassParamsToCanvas(
           config.glass,
-          previewBufW,
           exportW,
+          exportH,
         );
         renderer = new LiquidGlassRenderer(offscreen);
         const geo = computePillGeometry(exportW, exportH, ...pillGeoArgs);
@@ -418,6 +419,7 @@ export default function WallpaperGenerator() {
         pillCrossRatio: config.pillCrossRatio,
         baseColor,
         backgroundTint: config.backgroundTint,
+        backgroundBrightness: config.backgroundBrightness,
         pillStagger: config.pillStagger,
         liquidGlass: false,
       });
@@ -449,6 +451,7 @@ export default function WallpaperGenerator() {
           : [p.color],
       mode: p.mode,
       direction: p.direction,
+      liquidGlass: p.liquidGlass,
       pillCount: p.pillCount,
       pillOpacity: p.pillOpacity,
       overlapRatio: p.overlapRatio,
@@ -457,6 +460,7 @@ export default function WallpaperGenerator() {
       firstPillIntensity: p.firstPillIntensity,
       lastPillIntensity: p.lastPillIntensity,
       backgroundTint: p.backgroundTint,
+      backgroundBrightness: p.backgroundBrightness,
     }));
 
   // Preview frame: desktop uses side-by-side layout; mobile stacks controls below — different vertical budget.
@@ -651,6 +655,18 @@ export default function WallpaperGenerator() {
                 accent={accent}
               />
             </div>
+            <div className="mt-2">
+              <Slider
+                label="Background brightness"
+                value={config.backgroundBrightness}
+                min={-1}
+                max={1}
+                step={0.01}
+                display={`${config.backgroundBrightness > 0 ? "+" : ""}${Math.round(config.backgroundBrightness * 100)}%`}
+                onChange={(v) => set("backgroundBrightness", v)}
+                accent={accent}
+              />
+            </div>
           </Section>
 
           <Section label="Mode">
@@ -834,7 +850,7 @@ export default function WallpaperGenerator() {
                   min={1}
                   max={80}
                   step={0.5}
-                  display={config.glass.refThickness.toFixed(0)}
+                  display={`${config.glass.refThickness.toFixed(0)}%`}
                   onChange={(v) => setGlass("refThickness", v)}
                   accent={accent}
                 />

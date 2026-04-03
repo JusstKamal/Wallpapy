@@ -71,6 +71,7 @@ export function wallpaperBackgroundFromBase(
   baseHex: string,
   mode: "dark" | "light",
   tintAmount = 1,
+  brightnessAmount = 0,
 ): string {
   const [h, s] = hexToHsl(baseHex);
   // Dark: chroma on ~5% L reads well. Light: same L as paper + low S looks nearly white —
@@ -102,11 +103,19 @@ export function wallpaperBackgroundFromBase(
   const t = Math.min(10, Math.max(0, tintAmount));
   const neutral =
     mode === "dark" ? hslToHex(0, 0, neutralL) : hslToHex(0, 0, neutralL);
-  if (t <= 0) return neutral;
-  if (t < 1) return mixHexHsl(neutral, tinted, t);
-  if (t < 2) return mixHexHsl(tinted, tintedStrong, t - 1);
-  if (t < 5) return mixHexHsl(tintedStrong, tintedMax, (t - 2) / 3);
-  return mixHexHsl(tintedMax, tintedExtreme, (t - 5) / 5);
+  let bg = neutral;
+  if (t <= 0) bg = neutral;
+  else if (t < 1) bg = mixHexHsl(neutral, tinted, t);
+  else if (t < 2) bg = mixHexHsl(tinted, tintedStrong, t - 1);
+  else if (t < 5) bg = mixHexHsl(tintedStrong, tintedMax, (t - 2) / 3);
+  else bg = mixHexHsl(tintedMax, tintedExtreme, (t - 5) / 5);
+
+  const shift = Math.min(1, Math.max(-1, brightnessAmount));
+  if (Math.abs(shift) < 1e-6) return bg;
+  const [bh, bs, bl] = hexToHsl(bg);
+  const lightnessRange = mode === "dark" ? 35 : 25;
+  const outL = Math.min(100, Math.max(0, bl + shift * lightnessRange));
+  return hslToHex(bh, bs, outL);
 }
 
 /** Sample along ordered palette stops, t ∈ [0, 1] from first → last stop. */
