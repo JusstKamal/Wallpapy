@@ -145,9 +145,8 @@ uniform float u_glareOppositeFactor;
 uniform float u_glareFactor;
 uniform float u_glareAngle;
 
-// Blur/tint
+// Blur
 uniform int   u_blurEdge;
-uniform vec4  u_tint;
 
 // ---------- SDF ----------
 float pillSDF(vec2 frag, vec2 center, float hw, float hh) {
@@ -158,7 +157,8 @@ float pillSDF(vec2 frag, vec2 center, float hw, float hh) {
   return d / u_resolution.y;
 }
 
-float mainSDF(vec2 frag) {
+// Union SDF: outside the combined shape (used only for bg discard).
+float unionPillsSDF(vec2 frag) {
   float d = 1e10;
   for (int i = 0; i < MAX_PILLS; i++) {
     if (i >= u_pillCount) break;
@@ -167,11 +167,25 @@ float mainSDF(vec2 frag) {
   return d;
 }
 
-vec2 getNormal(vec2 p) {
+// SDF for a single pill by index (avoids dynamic uniform indexing issues).
+float pillSDFIndex(vec2 frag, int idx) {
+  float d = 1e10;
+  for (int i = 0; i < MAX_PILLS; i++) {
+    if (i >= u_pillCount) break;
+    if (i == idx) {
+      d = pillSDF(frag, u_pillCenters[i], u_pillHalfW, u_pillHalfH);
+      break;
+    }
+  }
+  return d;
+}
+
+// Gradient of one pill's SDF — same as independent glass on that capsule.
+vec2 getNormalForPill(vec2 p, int idx) {
   vec2 h = vec2(max(abs(dFdx(p.x)), 0.0001), max(abs(dFdy(p.y)), 0.0001));
   vec2 grad = vec2(
-    mainSDF(p + vec2(h.x, 0.0)) - mainSDF(p - vec2(h.x, 0.0)),
-    mainSDF(p + vec2(0.0, h.y)) - mainSDF(p - vec2(0.0, h.y))
+    pillSDFIndex(p + vec2(h.x, 0.0), idx) - pillSDFIndex(p - vec2(h.x, 0.0), idx),
+    pillSDFIndex(p + vec2(0.0, h.y), idx) - pillSDFIndex(p - vec2(0.0, h.y), idx)
   ) / (2.0 * h);
   return grad * 1.414213562 * 1000.0;
 }
@@ -221,13 +235,26 @@ vec4 sampleDispersion(sampler2D tex1, sampler2D tex2, float mixRate, vec2 offset
 // ---------- Main ----------
 void main() {
   vec2 res1x = u_resolution / u_dpr;
-  float merged = mainSDF(gl_FragCoord.xy);
+  float dUnion = unionPillsSDF(gl_FragCoord.xy);
 
-  if (merged >= 0.005) {
+  if (dUnion >= 0.005) {
     fragColor = texture(u_bg, v_uv);
     return;
   }
 
+  // Topmost pill at this pixel (must match BG pass: later index overdraws earlier).
+  int owner = -1;
+  for (int i = 0; i < MAX_PILLS; i++) {
+    if (i >= u_pillCount) break;
+    float di = pillSDF(gl_FragCoord.xy, u_pillCenters[i], u_pillHalfW, u_pillHalfH);
+    if (di < 0.005) owner = i;
+  }
+  if (owner < 0) {
+    fragColor = texture(u_bg, v_uv);
+    return;
+  }
+
+  float merged = pillSDFIndex(gl_FragCoord.xy, owner);
   float nmerged = -merged * res1x.y; // positive pixels inside shape
 
   // Refraction edge factor (Snell's law)
@@ -237,16 +264,14 @@ void main() {
   float edgeFactor = nmerged < u_refThickness ? -1.0 * tan(thetaT - thetaI) : 0.0;
 
   if (edgeFactor <= 0.0) {
-    // Interior of glass — blurred + tinted
     vec4 col = texture(u_blurredBg, v_uv);
-    col = mix(col, vec4(u_tint.rgb, 1.0), u_tint.a * 0.8);
     fragColor = mix(col, texture(u_bg, v_uv), smoothstep(-0.001, 0.001, merged));
     return;
   }
 
   // Edge region — refraction + fresnel + glare
   float edgeH = nmerged / u_refThickness;
-  vec2 normal = getNormal(gl_FragCoord.xy);
+  vec2 normal = getNormalForPill(gl_FragCoord.xy, owner);
   vec2 refOffset = -normal * edgeFactor * 0.05 * u_dpr *
     vec2(u_resolution.y / (res1x.x * u_dpr), 1.0);
 
@@ -256,15 +281,14 @@ void main() {
     refOffset, u_refDispersion
   );
 
-  // Tint
-  vec4 col = mix(blurredPixel, vec4(u_tint.rgb, 1.0), u_tint.a * 0.8);
+  vec4 col = blurredPixel;
 
   // Fresnel
   float fresnelFactor = clamp(
     pow(1.0 + merged * res1x.y / 1500.0 * pow(500.0 / u_refFresnelRange, 2.0) + u_refFresnelHardness, 5.0),
     0.0, 1.0
   );
-  vec3 fresnelLCH = SRGB_TO_LCH(mix(vec3(1.0), u_tint.rgb, u_tint.a * 0.5));
+  vec3 fresnelLCH = SRGB_TO_LCH(vec3(1.0));
   fresnelLCH.x += 20.0 * fresnelFactor * u_refFresnelFactor;
   fresnelLCH.x = clamp(fresnelLCH.x, 0.0, 100.0);
   col = mix(col, vec4(LCH_TO_SRGB(fresnelLCH), 1.0), fresnelFactor * u_refFresnelFactor * 0.7 * length(normal));
@@ -281,7 +305,7 @@ void main() {
     (farside == 1 ? 1.2 * u_glareOppositeFactor : 1.2) *
     u_glareFactor;
   glareAngleFactor = clamp(pow(glareAngleFactor, 0.1 + u_glareConvergence * 2.0), 0.0, 1.0);
-  vec3 glareLCH = SRGB_TO_LCH(mix(blurredPixel.rgb, u_tint.rgb, u_tint.a * 0.5));
+  vec3 glareLCH = SRGB_TO_LCH(blurredPixel.rgb);
   glareLCH.x += 150.0 * glareAngleFactor * glareGeoFactor;
   glareLCH.y += 30.0 * glareAngleFactor * glareGeoFactor;
   glareLCH.x = clamp(glareLCH.x, 0.0, 120.0);

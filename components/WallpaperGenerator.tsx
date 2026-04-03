@@ -29,6 +29,10 @@ import {
   GLASS_DEFAULTS,
   computePillGeometry,
 } from "@/lib/liquidGlassRenderer";
+import {
+  canvasToDataURLWithBitDepth,
+  type ExportBitDepth,
+} from "@/lib/exportBitDepth";
 
 interface Config {
   /** One color = single-hue lightness ramp; two+ = gradient between stops along the stack. */
@@ -52,6 +56,10 @@ interface Config {
   glass: GlassParams;
   /** 0–10 internal = 0–100% in UI (same intensity curve); default 1 = 10% */
   backgroundTint: number;
+  /** Alternating per-pill stagger (fraction of pill thickness); sign flips wobble direction */
+  pillStagger: number;
+  /** RGB export quantization (PNG samples stay 8-bit; simulates 10/12-bit precision). */
+  exportBitDepth: ExportBitDepth;
 }
 
 const DEFAULT: Config = {
@@ -64,6 +72,8 @@ const DEFAULT: Config = {
   qualityIndex: 1,
   liquidGlass: false,
   glass: { ...GLASS_DEFAULTS },
+  pillStagger: 0,
+  exportBitDepth: 8,
 };
 
 /** Portrait canvas → vertical stack; landscape → horizontal (pills run along the long axis). */
@@ -163,6 +173,7 @@ export default function WallpaperGenerator() {
     config.mode,
     baseColor,
     config.backgroundTint,
+    config.pillStagger,
   ] as const;
 
   // ── Canvas2D preview (non-glass) ──────────────────────────────
@@ -188,6 +199,7 @@ export default function WallpaperGenerator() {
       pillCrossRatio: config.pillCrossRatio,
       baseColor,
       backgroundTint: config.backgroundTint,
+      pillStagger: config.pillStagger,
       liquidGlass: false,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -244,8 +256,9 @@ export default function WallpaperGenerator() {
         const geo = computePillGeometry(exportW, exportH, ...pillGeoArgs);
         renderer.render(geo, config.glass, 1);
         const link = document.createElement("a");
-        link.download = `wallpapy-glass-${exportW}x${exportH}.png`;
-        link.href = offscreen.toDataURL("image/png");
+        const bd = config.exportBitDepth;
+        link.download = `wallpapy-glass-${exportW}x${exportH}${bd === 8 ? "" : `-${bd}bit`}.png`;
+        link.href = canvasToDataURLWithBitDepth(offscreen, bd);
         link.click();
       } catch (e) {
         console.error("Export failed:", e);
@@ -269,11 +282,13 @@ export default function WallpaperGenerator() {
         pillCrossRatio: config.pillCrossRatio,
       baseColor,
       backgroundTint: config.backgroundTint,
+      pillStagger: config.pillStagger,
       liquidGlass: false,
       });
       const link = document.createElement("a");
-      link.download = `wallpapy-${exportW}x${exportH}.png`;
-      link.href = offscreen.toDataURL("image/png");
+      const bd = config.exportBitDepth;
+      link.download = `wallpapy-${exportW}x${exportH}${bd === 8 ? "" : `-${bd}bit`}.png`;
+      link.href = canvasToDataURLWithBitDepth(offscreen, bd);
       link.click();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -849,54 +864,6 @@ export default function WallpaperGenerator() {
                   </button>
                 </div>
               </Section>
-              <Section label="Tint">
-                <div className="flex items-center gap-3">
-                  <label className="relative w-8 h-8 rounded-lg overflow-hidden border border-white/10 cursor-pointer shrink-0">
-                    <input
-                      type="color"
-                      value={`#${Math.round(config.glass.tint.r * 255)
-                        .toString(16)
-                        .padStart(2, "0")}${Math.round(
-                        config.glass.tint.g * 255,
-                      )
-                        .toString(16)
-                        .padStart(2, "0")}${Math.round(
-                        config.glass.tint.b * 255,
-                      )
-                        .toString(16)
-                        .padStart(2, "0")}`}
-                      onChange={(e) => {
-                        const r =
-                          parseInt(e.target.value.slice(1, 3), 16) / 255;
-                        const g =
-                          parseInt(e.target.value.slice(3, 5), 16) / 255;
-                        const b =
-                          parseInt(e.target.value.slice(5, 7), 16) / 255;
-                        setGlass("tint", { ...config.glass.tint, r, g, b });
-                      }}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    />
-                    <div
-                      className="w-full h-full"
-                      style={{
-                        background: `rgb(${Math.round(config.glass.tint.r * 255)},${Math.round(config.glass.tint.g * 255)},${Math.round(config.glass.tint.b * 255)})`,
-                      }}
-                    />
-                  </label>
-                  <Slider
-                    label="Opacity"
-                    value={config.glass.tint.a}
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    display={`${Math.round(config.glass.tint.a * 100)}%`}
-                    onChange={(v) =>
-                      setGlass("tint", { ...config.glass.tint, a: v })
-                    }
-                    accent={accent}
-                  />
-                </div>
-              </Section>
               <div className="px-4 py-3 border-b border-white/[0.06]">
                 <button
                   onClick={() => set("glass", { ...GLASS_DEFAULTS })}
@@ -952,6 +919,45 @@ export default function WallpaperGenerator() {
             </div>
             <p className="text-[11px] text-white/20 mt-2 text-center font-mono">
               {exportW} × {exportH}px
+            </p>
+          </Section>
+
+          <Section label="Alternating stagger">
+            <Slider
+              label="Wobble"
+              value={config.pillStagger}
+              min={-0.35}
+              max={0.35}
+              step={0.005}
+              display={`${config.pillStagger >= 0 ? "+" : ""}${Math.round(config.pillStagger * 100)}%`}
+              onChange={(v) => set("pillStagger", v)}
+              accent={accent}
+            />
+            <p className="text-[11px] text-white/20 mt-1">
+              Offsets every other pill along the cross axis; negative values flip
+              which side goes first. Scale is % of pill thickness (height in a
+              row, width in a column).
+            </p>
+          </Section>
+
+          <Section label="Export color depth">
+            <Seg
+              options={
+                [
+                  ["8", "8-bit"],
+                  ["10", "10-bit"],
+                  ["12", "12-bit"],
+                ] as const
+              }
+              value={String(config.exportBitDepth)}
+              onChange={(v) =>
+                set("exportBitDepth", Number(v) as ExportBitDepth)
+              }
+            />
+            <p className="text-[11px] text-white/20 mt-2">
+              Export applies per-channel quantization. PNG files use 8-bit
+              samples; higher settings reduce banding when viewed on wide-gamut /
+              HDR displays.
             </p>
           </Section>
 

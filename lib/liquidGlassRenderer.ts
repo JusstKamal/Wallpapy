@@ -17,7 +17,6 @@ export interface GlassParams {
   glareAngle: number;   // degrees
   blurRadius: number;
   blurEdge: boolean;
-  tint: { r: number; g: number; b: number; a: number };
   shadowExpand: number;
   shadowFactor: number;
   shadowX: number;
@@ -39,7 +38,6 @@ export const GLASS_DEFAULTS: GlassParams = {
   glareAngle: -45,
   blurRadius: 12,
   blurEdge: true,
-  tint: { r: 1, g: 1, b: 1, a: 0 },
   shadowExpand: 25,
   shadowFactor: 15,
   shadowX: 0,
@@ -171,7 +169,6 @@ export class LiquidGlassRenderer {
       u_glareFactor: params.glareFactor / 100,
       u_glareAngle: (params.glareAngle * Math.PI) / 180,
       u_blurEdge: params.blurEdge ? 1 : 0,
-      u_tint: [params.tint.r, params.tint.g, params.tint.b, params.tint.a],
     });
   }
 
@@ -197,9 +194,11 @@ export function computePillGeometry(
   mode: 'dark' | 'light',
   baseColor: string,
   backgroundTint: number,
+  pillStagger: number,
 ): PillGeometry {
   const centers: Array<[number, number]> = [];
   let halfW = 0, halfH = 0;
+  const stagger = Math.max(-0.35, Math.min(0.35, pillStagger));
 
   if (stackDirection === 'horizontal') {
     const pillH = height * pillMainRatio;
@@ -207,10 +206,12 @@ export function computePillGeometry(
     const step = pillW * (1 - overlapRatio);
     const totalW = pillW + step * (pillCount - 1);
     const startX = (width - totalW) / 2;
-    const startY = height * 0.5 - pillH / 2;
+    const baseY = height * 0.5 - pillH / 2;
     halfW = pillW / 2; halfH = pillH / 2;
     for (let i = 0; i < pillCount; i++) {
-      centers.push([startX + i * step + halfW, startY + halfH]);
+      const alt = i % 2 === 0 ? 1 : -1;
+      const y = baseY + alt * stagger * pillH;
+      centers.push([startX + i * step + halfW, y + halfH]);
     }
   } else {
     const pillW = width * pillMainRatio;
@@ -218,10 +219,12 @@ export function computePillGeometry(
     const step = pillH * (1 - overlapRatio);
     const totalH = pillH + step * (pillCount - 1);
     const startY = (height - totalH) / 2;
-    const startX = width * 0.5 - pillW / 2;
+    const baseX = width * 0.5 - pillW / 2;
     halfW = pillW / 2; halfH = pillH / 2;
     for (let i = 0; i < pillCount; i++) {
-      centers.push([startX + halfW, startY + i * step + halfH]);
+      const alt = i % 2 === 0 ? 1 : -1;
+      const x = baseX + alt * stagger * pillW;
+      centers.push([x + halfW, startY + i * step + halfH]);
     }
   }
 

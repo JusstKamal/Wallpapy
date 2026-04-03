@@ -16,6 +16,11 @@ export interface WallpaperConfig {
   baseColor: string;
   /** 0–10 internal; UI shows 0–100% (×10) */
   backgroundTint: number;
+  /**
+   * Alternating stagger along the cross axis (fraction of pill thickness).
+   * Sign flips direction: positive vs negative reverses which parity goes which way.
+   */
+  pillStagger: number;
   liquidGlass: boolean;
 }
 
@@ -26,7 +31,9 @@ export function renderWallpaper(canvas: HTMLCanvasElement, config: WallpaperConf
   if (!ctx) return;
 
   const { width, height, pillCount, colors, pillOpacity, mode, stackDirection,
-    overlapRatio, pillMainRatio, pillCrossRatio, baseColor, backgroundTint, liquidGlass } = config;
+    overlapRatio, pillMainRatio, pillCrossRatio, baseColor, backgroundTint,
+    pillStagger, liquidGlass } = config;
+  const stagger = Math.max(-0.35, Math.min(0.35, pillStagger));
   const alpha = Math.min(1, Math.max(0, pillOpacity));
 
   // Scale factor so all effects look correct at any resolution
@@ -45,10 +52,12 @@ export function renderWallpaper(canvas: HTMLCanvasElement, config: WallpaperConf
     const step = pillW * (1 - overlapRatio);
     const totalW = pillW + step * (pillCount - 1);
     const startX = (width - totalW) / 2;
-    const startY = height * 0.5 - pillH / 2;
+    const baseY = height * 0.5 - pillH / 2;
     for (let i = 0; i < pillCount; i++) {
+      const alt = i % 2 === 0 ? 1 : -1;
+      const y = baseY + alt * stagger * pillH;
       pills.push({
-        x: startX + i * step, y: startY, w: pillW, h: pillH, color: colors[i],
+        x: startX + i * step, y, w: pillW, h: pillH, color: colors[i],
         opacity: alpha,
       });
     }
@@ -58,10 +67,12 @@ export function renderWallpaper(canvas: HTMLCanvasElement, config: WallpaperConf
     const step = pillH * (1 - overlapRatio);
     const totalH = pillH + step * (pillCount - 1);
     const startY = (height - totalH) / 2;
-    const startX = width * 0.5 - pillW / 2;
+    const baseX = width * 0.5 - pillW / 2;
     for (let i = 0; i < pillCount; i++) {
+      const alt = i % 2 === 0 ? 1 : -1;
+      const x = baseX + alt * stagger * pillW;
       pills.push({
-        x: startX, y: startY + i * step, w: pillW, h: pillH, color: colors[i],
+        x, y: startY + i * step, w: pillW, h: pillH, color: colors[i],
         opacity: alpha,
       });
     }
