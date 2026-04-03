@@ -29,6 +29,7 @@ import {
   normalizeCustomAspectPair,
   ASPECT_RATIO_PART_MAX,
   ASPECT_MAX_SIDE_RATIO,
+  type StackLayerOrder,
 } from "@/lib/pillRenderer";
 import {
   LiquidGlassRenderer,
@@ -51,6 +52,8 @@ interface Config {
   mode: "dark" | "light";
   direction: "dark-to-light" | "light-to-dark";
   stackDirection: "horizontal" | "vertical";
+  /** Which end of the stack is in front when pills overlap (left/top vs right/bottom). */
+  stackLayerOrder: StackLayerOrder;
   overlapRatio: number;
   pillMainRatio: number;
   pillCrossRatio: number;
@@ -85,6 +88,7 @@ const DEFAULT: Config = {
   direction: "dark-to-light",
   ...PRESET_DEFAULTS,
   stackDirection: "horizontal",
+  stackLayerOrder: "stack-start",
   arIndex: 0,
   customAspectW: 16,
   customAspectH: 9,
@@ -167,6 +171,21 @@ export default function WallpaperGenerator() {
       };
     });
 
+  const reorderPaletteStops = (from: number, to: number) => {
+    if (from === to) return;
+    setConfig((prev) => {
+      const next = [...prev.paletteColors];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return { ...prev, paletteColors: next };
+    });
+  };
+
+  const [paletteDragFrom, setPaletteDragFrom] = useState<number | null>(null);
+  const [paletteDropTarget, setPaletteDropTarget] = useState<number | null>(
+    null,
+  );
+
   const baseColor = config.paletteColors[0] ?? "#6D28D9";
   const colors = generatePillColorsFromPalette(
     config.paletteColors,
@@ -197,6 +216,7 @@ export default function WallpaperGenerator() {
     colors,
     config.pillOpacity,
     config.stackDirection,
+    config.stackLayerOrder,
     config.overlapRatio,
     config.pillMainRatio,
     config.pillCrossRatio,
@@ -252,6 +272,7 @@ export default function WallpaperGenerator() {
       pillOpacity: config.pillOpacity,
       mode: config.mode,
       stackDirection: config.stackDirection,
+      stackLayerOrder: config.stackLayerOrder,
       overlapRatio: config.overlapRatio,
       pillMainRatio: config.pillMainRatio,
       pillCrossRatio: config.pillCrossRatio,
@@ -414,6 +435,7 @@ export default function WallpaperGenerator() {
         pillOpacity: config.pillOpacity,
         mode: config.mode,
         stackDirection: config.stackDirection,
+        stackLayerOrder: config.stackLayerOrder,
         overlapRatio: config.overlapRatio,
         pillMainRatio: config.pillMainRatio,
         pillCrossRatio: config.pillCrossRatio,
@@ -583,49 +605,141 @@ export default function WallpaperGenerator() {
           <Section label="Color">
             <p className="text-[11px] text-white/35 mb-2 leading-snug">
               One color: lightness ramp. Multiple: gradient from first → last
-              along the pill stack (background tint uses the first stop).
+              along the pill stack (background tint uses the first stop). Drag
+              the grip to reorder; the glowing bar shows the gap where the stop
+              will land.
             </p>
-            <div className="flex flex-col gap-2">
-              {config.paletteColors.map((c, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <span className="w-5 shrink-0 text-[10px] text-white/30 font-mono text-right">
-                    {i + 1}
-                  </span>
-                  <label className="relative w-9 h-9 rounded-lg overflow-hidden border border-white/10 cursor-pointer shrink-0">
-                    <input
-                      type="color"
-                      value={c}
-                      onChange={(e) => setPaletteColor(i, e.target.value)}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    />
+            <div className="flex flex-col gap-2 overflow-visible">
+              {config.paletteColors.map((c, i) => {
+                const canReorder = config.paletteColors.length > 1;
+                const showInsertGap =
+                  canReorder &&
+                  paletteDragFrom !== null &&
+                  paletteDropTarget === i;
+                return (
+                  <div
+                    key={i}
+                    className="relative"
+                    onDragOver={
+                      canReorder
+                        ? (e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "move";
+                            setPaletteDropTarget(i);
+                          }
+                        : undefined
+                    }
+                    onDrop={
+                      canReorder
+                        ? (e) => {
+                            e.preventDefault();
+                            const raw =
+                              e.dataTransfer.getData(
+                                "application/x-palette-index",
+                              ) || e.dataTransfer.getData("text/plain");
+                            const from = Number(raw);
+                            if (Number.isNaN(from)) return;
+                            reorderPaletteStops(from, i);
+                            setPaletteDragFrom(null);
+                            setPaletteDropTarget(null);
+                          }
+                        : undefined
+                    }
+                  >
+                    {showInsertGap && (
+                      <div
+                        aria-hidden
+                        className="pointer-events-none absolute left-0 right-0 z-10 h-[3px] rounded-full"
+                        style={{
+                          top: i === 0 ? -6 : -7,
+                          background: accent,
+                          boxShadow: `0 0 10px ${accent}99`,
+                        }}
+                      />
+                    )}
                     <div
-                      className="w-full h-full"
-                      style={{ background: c }}
-                    />
-                  </label>
-                  <input
-                    type="text"
-                    value={c.toUpperCase()}
-                    onChange={(e) => {
-                      if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value))
-                        setPaletteColor(i, e.target.value);
-                    }}
-                    className="flex-1 min-w-0 bg-white/[0.06] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono uppercase tracking-wider text-white/80 focus:outline-none focus:border-white/20"
-                  />
-                  {config.paletteColors.length > 1 ? (
-                    <button
-                      type="button"
-                      onClick={() => removePaletteStop(i)}
-                      className="shrink-0 w-8 h-8 rounded-lg border border-white/[0.08] text-white/40 hover:text-white/70 hover:border-white/15 text-[16px] leading-none flex items-center justify-center"
-                      aria-label={`Remove color ${i + 1}`}
+                      className={`flex items-center gap-1.5 rounded-lg py-0.5 pl-0.5 pr-0.5 transition-opacity ${
+                        canReorder && paletteDragFrom === i ? "opacity-45" : ""
+                      }`}
                     >
-                      ×
-                    </button>
-                  ) : (
-                    <span className="w-8 shrink-0" aria-hidden />
-                  )}
-                </div>
-              ))}
+                      <span
+                        className={`flex h-9 w-6 shrink-0 items-center justify-center rounded-md ${
+                          canReorder
+                            ? "cursor-grab touch-none text-white/30 hover:text-white/50 active:cursor-grabbing"
+                            : "cursor-not-allowed text-white/15 opacity-40"
+                        }`}
+                        draggable={canReorder}
+                        onDragStart={
+                          canReorder
+                            ? (e) => {
+                                e.dataTransfer.effectAllowed = "move";
+                                e.dataTransfer.setData(
+                                  "application/x-palette-index",
+                                  String(i),
+                                );
+                                e.dataTransfer.setData("text/plain", String(i));
+                                setPaletteDragFrom(i);
+                              }
+                            : undefined
+                        }
+                        onDragEnd={
+                          canReorder
+                            ? () => {
+                                setPaletteDragFrom(null);
+                                setPaletteDropTarget(null);
+                              }
+                            : undefined
+                        }
+                        aria-disabled={!canReorder}
+                        aria-label={
+                          canReorder
+                            ? `Drag to reorder, position ${i + 1}`
+                            : "Reorder (add another color stop to enable)"
+                        }
+                      >
+                        <PaletteDragHandleIcon />
+                      </span>
+                      <span className="w-4 shrink-0 text-right text-[10px] font-mono text-white/30">
+                        {i + 1}
+                      </span>
+                      <label className="relative h-9 w-9 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-white/10">
+                        <input
+                          type="color"
+                          value={c}
+                          onChange={(e) => setPaletteColor(i, e.target.value)}
+                          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                        />
+                        <div
+                          className="h-full w-full"
+                          style={{ background: c }}
+                        />
+                      </label>
+                      <input
+                        type="text"
+                        value={c.toUpperCase()}
+                        onChange={(e) => {
+                          if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value))
+                            setPaletteColor(i, e.target.value);
+                        }}
+                        className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/[0.06] px-2.5 py-1.5 font-mono text-[12px] uppercase tracking-wider text-white/80 focus:border-white/20 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={!canReorder}
+                        onClick={() => removePaletteStop(i)}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] text-[16px] leading-none text-white/40 hover:border-white/15 hover:text-white/70 disabled:pointer-events-none disabled:opacity-30 disabled:hover:border-white/[0.08] disabled:hover:text-white/40"
+                        aria-label={
+                          canReorder
+                            ? `Remove color ${i + 1}`
+                            : "Remove (add another color stop to enable)"
+                        }
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <button
               type="button"
@@ -690,6 +804,28 @@ export default function WallpaperGenerator() {
                 }
                 value={config.direction}
                 onChange={(v) => set("direction", v as Config["direction"])}
+              />
+            </div>
+            <div className="mt-2">
+              <p className="mb-1.5 text-[10px] uppercase tracking-wide text-white/35">
+                Overlap depth
+              </p>
+              <Seg
+                options={
+                  (config.stackDirection === "horizontal"
+                    ? [
+                        ["stack-start", "Left in front"],
+                        ["stack-end", "Right in front"],
+                      ]
+                    : [
+                        ["stack-start", "Top in front"],
+                        ["stack-end", "Bottom in front"],
+                      ]) as readonly [StackLayerOrder, string][]
+                }
+                value={config.stackLayerOrder}
+                onChange={(v) =>
+                  set("stackLayerOrder", v as StackLayerOrder)
+                }
               />
             </div>
           </Section>
@@ -1201,7 +1337,31 @@ export default function WallpaperGenerator() {
               <span className="text-[12px] text-white/45">Split preview & export</span>
               <button
                 type="button"
-                onClick={() => set("dualMonitor", !config.dualMonitor)}
+                onClick={() =>
+                  setConfig((prev) => {
+                    if (!prev.dualMonitor) {
+                      const ar32x9 = ASPECT_RATIOS.findIndex(
+                        (a) => a.w === 32 && a.h === 9,
+                      );
+                      const q5k = QUALITY_LEVELS.findIndex(
+                        (q) => q.label === "5K",
+                      );
+                      const { w, h } =
+                        ar32x9 >= 0
+                          ? ASPECT_RATIOS[ar32x9]
+                          : { w: 32, h: 9 };
+                      return {
+                        ...prev,
+                        dualMonitor: true,
+                        dualSplit: "left-right",
+                        arIndex: ar32x9 >= 0 ? ar32x9 : 2,
+                        qualityIndex: q5k >= 0 ? q5k : 3,
+                        stackDirection: stackDirectionForAspectRatio(w, h),
+                      };
+                    }
+                    return { ...prev, dualMonitor: false };
+                  })
+                }
                 className="relative w-9 h-5 rounded-full transition-all duration-150"
                 style={{
                   background: config.dualMonitor
@@ -1558,6 +1718,26 @@ function VStackIcon({ active, accent }: { active: boolean; accent: string }) {
     </svg>
   );
 }
+function PaletteDragHandleIcon() {
+  return (
+    <svg
+      width="10"
+      height="14"
+      viewBox="0 0 10 14"
+      fill="none"
+      className="pointer-events-none"
+      aria-hidden
+    >
+      {[0, 1, 2].map((row) => (
+        <g key={row} transform={`translate(0 ${row * 5})`}>
+          <circle cx="2.5" cy="2" r="1.15" fill="currentColor" />
+          <circle cx="7.5" cy="2" r="1.15" fill="currentColor" />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 function PillIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">

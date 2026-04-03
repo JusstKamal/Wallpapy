@@ -22,6 +22,7 @@ uniform float u_pillHalfW;
 uniform float u_pillHalfH;
 uniform vec3  u_pillColors[MAX_PILLS];
 uniform float u_pillOpacity;
+uniform int   u_stackStartOnTop;
 uniform float u_shadowExpand;
 uniform float u_shadowFactor;
 uniform vec2  u_shadowPosition;
@@ -48,9 +49,10 @@ void main() {
   vec2 res1x = u_resolution / u_dpr;
   vec3 col = u_bgColor;
 
-  // Paint pills back-to-front so later pills overdraw earlier ones
-  for (int i = 0; i < MAX_PILLS; i++) {
-    if (i >= u_pillCount) break;
+  // Paint pills back-to-front (order matches stackLayerOrder: start-on-top → high index first)
+  for (int k = 0; k < MAX_PILLS; k++) {
+    if (k >= u_pillCount) break;
+    int i = u_stackStartOnTop != 0 ? (u_pillCount - 1 - k) : k;
     float d_norm = pillSDF(gl_FragCoord.xy, u_pillCenters[i], u_pillHalfW, u_pillHalfH);
     float d_px = d_norm * u_resolution.y;
     float mask = 1.0 - smoothstep(-0.8, 0.8, d_px);
@@ -147,6 +149,7 @@ uniform float u_glareAngle;
 
 // Blur
 uniform int   u_blurEdge;
+uniform int   u_stackStartOnTop;
 
 // ---------- SDF ----------
 float pillSDF(vec2 frag, vec2 center, float hw, float hh) {
@@ -242,12 +245,18 @@ void main() {
     return;
   }
 
-  // Topmost pill at this pixel (must match BG pass: later index overdraws earlier).
+  // Topmost pill at this pixel (must match BG pass paint order).
   int owner = -1;
   for (int i = 0; i < MAX_PILLS; i++) {
     if (i >= u_pillCount) break;
     float di = pillSDF(gl_FragCoord.xy, u_pillCenters[i], u_pillHalfW, u_pillHalfH);
-    if (di < 0.005) owner = i;
+    if (di < 0.005) {
+      if (u_stackStartOnTop != 0) {
+        if (owner < 0 || i < owner) owner = i;
+      } else {
+        owner = i;
+      }
+    }
   }
   if (owner < 0) {
     fragColor = texture(u_bg, v_uv);

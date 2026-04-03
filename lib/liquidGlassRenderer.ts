@@ -1,6 +1,6 @@
 import { wallpaperBackgroundFromBase } from "./colorUtils";
 import { RenderPass, computeGaussianWeights, hexToVec3 } from "./glUtils";
-import { QUALITY_LEVELS } from "./pillRenderer";
+import { QUALITY_LEVELS, type StackLayerOrder } from "./pillRenderer";
 import {
   VERTEX_SRC,
   BG_FRAG_SRC,
@@ -92,6 +92,7 @@ export interface PillGeometry {
   pillOpacity: number;
   bgColor: string;
   mode: "dark" | "light";
+  stackLayerOrder: StackLayerOrder;
 }
 
 export class LiquidGlassRenderer {
@@ -170,6 +171,7 @@ export class LiquidGlassRenderer {
     // Pad weights to MAX_BLUR_RADIUS+1 = 201
     while (blurWeights.length < 201) blurWeights.push(0);
 
+    const stackStartOnTop = geo.stackLayerOrder === "stack-start" ? 1 : 0;
     const sharedUniforms = {
       u_resolution: res,
       u_dpr: dpr,
@@ -177,6 +179,7 @@ export class LiquidGlassRenderer {
       u_pillCenters: centers,
       u_pillHalfW: geo.halfW,
       u_pillHalfH: geo.halfH,
+      u_stackStartOnTop: stackStartOnTop,
     };
 
     // Pass 1: background + pills painted flat
@@ -249,6 +252,7 @@ export function computePillGeometry(
   colors: string[],
   pillOpacity: number,
   stackDirection: "horizontal" | "vertical",
+  stackLayerOrder: StackLayerOrder,
   overlapRatio: number,
   pillMainRatio: number,
   pillCrossRatio: number,
@@ -300,5 +304,14 @@ export function computePillGeometry(
     backgroundBrightness,
   );
   const o = Math.min(1, Math.max(0, pillOpacity));
-  return { centers, halfW, halfH, colors, pillOpacity: o, bgColor, mode };
+  return {
+    centers,
+    halfW,
+    halfH,
+    colors,
+    pillOpacity: o,
+    bgColor,
+    mode,
+    stackLayerOrder,
+  };
 }

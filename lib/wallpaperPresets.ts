@@ -79,211 +79,132 @@ function prStops(
 }
 
 /**
- * Sixteen distinct looks — two per category:
- * (one | multi) × (light | dark) × (normal | liquid glass).
- * Pairs are not clones: different hues, stacks, and tuning.
+ * Nine presets chosen for spread: light/dark, single/multi, liquid/plain,
+ * and hue families (neutral, cyan, rose, violet, rust, forest, candy, neon, cosmic).
  */
 export const PRESETS: WallpaperPreset[] = [
-  // One-colored · Light · Normal — airy paper vs punchy citrus
-  pr("Linen", "#D6D3D1", "light", "light-to-dark", {
+  /** Night sky — broad strokes, heavy overlap, no wispy bars */
+  pr("Midnight", "#6D28D9", "dark", "dark-to-light", {
     pillCount: 11,
-    overlapRatio: 0.38,
-    pillMainRatio: 0.52,
-    pillCrossRatio: 0.38,
-    firstPillIntensity: 0.85,
-    lastPillIntensity: 0.88,
-    backgroundTint: 1.1,
+    overlapRatio: 0.62,
+    pillMainRatio: 0.68,
+    pillCrossRatio: 0.44,
+    firstPillIntensity: 0.92,
+    lastPillIntensity: 0.92,
+    backgroundTint: 7.2,
   }),
-  pr("Citrus", "#CA8A04", "light", "light-to-dark", {
-    pillCount: 7,
-    overlapRatio: 0.06,
-    pillMainRatio: 0.7,
-    pillCrossRatio: 0.3,
-    pillOpacity: 0.9,
-    backgroundTint: 2.2,
-  }),
-  // One-colored · Light · Liquid glass — cool ice vs soft floral
-  pr(
-    "Glacier",
-    "#0EA5E9",
-    "light",
-    "dark-to-light",
-    {
-      pillCount: 13,
-      overlapRatio: -0.04,
-      pillMainRatio: 0.44,
-      pillCrossRatio: 0.22,
-      firstPillIntensity: 0.88,
-      lastPillIntensity: 0.95,
-      backgroundTint: 1.8,
-    },
-    true,
-  ),
+  /** Full bloom — soft, rounded mass */
   pr(
     "Peony",
     "#E11D48",
     "light",
     "light-to-dark",
     {
-      pillCount: 9,
-      overlapRatio: 0.32,
-      pillMainRatio: 0.54,
-      pillCrossRatio: 0.42,
+      pillCount: 10,
+      overlapRatio: 0.58,
+      pillMainRatio: 0.6,
+      pillCrossRatio: 0.46,
       pillOpacity: 0.92,
+      firstPillIntensity: 0.86,
+      lastPillIntensity: 0.94,
       backgroundTint: 1.6,
     },
     true,
   ),
-  // One-colored · Dark · Normal — electric violet vs burnt ember
-  pr("Midnight", "#6D28D9", "dark", "dark-to-light", {
-    pillCount: 14,
-    overlapRatio: -0.08,
-    pillMainRatio: 0.42,
-    pillCrossRatio: 0.18,
-    firstPillIntensity: 0.92,
-    lastPillIntensity: 0.92,
-    backgroundTint: 7.2,
-  }),
-  pr("Ember", "#9A3412", "dark", "dark-to-light", {
-    pillCount: 10,
-    overlapRatio: 0.14,
+  /** Folded textile — even, medium body */
+  pr("Linen", "#D6D3D1", "light", "light-to-dark", {
+    pillCount: 11,
+    overlapRatio: 0.55,
     pillMainRatio: 0.56,
-    pillCrossRatio: 0.26,
+    pillCrossRatio: 0.4,
+    firstPillIntensity: 0.85,
+    lastPillIntensity: 0.88,
+    backgroundTint: 1.1,
+  }),
+  /** Ice field — thick slabs, stacked pack ice */
+  pr(
+    "Glacier",
+    "#0EA5E9",
+    "light",
+    "dark-to-light",
+    {
+      pillCount: 10,
+      overlapRatio: 0.66,
+      pillMainRatio: 0.66,
+      pillCrossRatio: 0.48,
+      firstPillIntensity: 0.88,
+      lastPillIntensity: 0.95,
+      backgroundTint: 1.8,
+    },
+    true,
+  ),
+  /** Glowing bed — chunky, warm mass */
+  pr("Ember", "#9A3412", "dark", "dark-to-light", {
+    pillCount: 9,
+    overlapRatio: 0.6,
+    pillMainRatio: 0.64,
+    pillCrossRatio: 0.43,
     firstPillIntensity: 0.88,
     lastPillIntensity: 0.9,
     backgroundTint: 4.2,
   }),
-  // One-colored · Dark · Liquid glass — ink indigo vs deep forest
-  pr(
-    "Obsidian",
-    "#312E81",
-    "dark",
-    "dark-to-light",
-    {
-      pillCount: 15,
-      overlapRatio: -0.11,
-      pillMainRatio: 0.4,
-      pillCrossRatio: 0.16,
-      firstPillIntensity: 0.9,
-      lastPillIntensity: 0.93,
-      backgroundTint: 7.8,
-    },
-    true,
-  ),
+  /** Canopy layers — dense overlap, vertical weight */
   pr(
     "Taiga",
     "#365314",
     "dark",
     "dark-to-light",
     {
-      pillCount: 8,
-      overlapRatio: 0.22,
-      pillMainRatio: 0.61,
-      pillCrossRatio: 0.34,
+      pillCount: 9,
+      overlapRatio: 0.64,
+      pillMainRatio: 0.62,
+      pillCrossRatio: 0.42,
       firstPillIntensity: 0.87,
       lastPillIntensity: 0.9,
       backgroundTint: 3.8,
     },
     true,
   ),
-  // Multi-colored · Light · Normal — candy riot vs sunrise sky
+  /** Prismatic stack — bold tiles */
   prStops(
     "Kaleido",
     ["#F472B6", "#FB923C", "#4ADE80", "#60A5FA"],
     "light",
     "dark-to-light",
     {
-      pillCount: 14,
-      overlapRatio: 0.42,
-      pillMainRatio: 0.41,
-      pillCrossRatio: 0.27,
+      pillCount: 11,
+      overlapRatio: 0.57,
+      pillMainRatio: 0.6,
+      pillCrossRatio: 0.4,
       backgroundTint: 4.8,
     },
   ),
-  prStops("Dawn", ["#0369A1", "#F97316", "#FBBF24"], "light", "light-to-dark", {
-    pillCount: 10,
-    overlapRatio: 0.18,
-    pillMainRatio: 0.56,
-    pillCrossRatio: 0.34,
-    backgroundTint: 2.8,
-  }),
-  // Multi-colored · Light · Liquid glass — pastel chalk vs seafoam shore
-  prStops(
-    "Pastille",
-    ["#C4B5FD", "#F9A8D4", "#93C5FD", "#86EFAC"],
-    "light",
-    "dark-to-light",
-    {
-      pillCount: 12,
-      overlapRatio: 0.48,
-      pillMainRatio: 0.39,
-      pillCrossRatio: 0.24,
-      pillOpacity: 0.94,
-      backgroundTint: 3.2,
-    },
-    false,
-  ),
-  prStops(
-    "Shoal",
-    ["#5EEAD4", "#67E8F9", "#FDE047", "#FDA4AF"],
-    "light",
-    "dark-to-light",
-    {
-      pillCount: 11,
-      overlapRatio: 0.28,
-      pillMainRatio: 0.5,
-      pillCrossRatio: 0.32,
-      backgroundTint: 4,
-    },
-    true,
-  ),
-  // Multi-colored · Dark · Normal — retro neon vs film noir
+  /** Retro bars — wide neon ribbons */
   prStops(
     "Synthwave",
     ["#DB2777", "#7C3AED", "#2563EB"],
     "dark",
     "dark-to-light",
     {
-      pillCount: 13,
-      overlapRatio: 0.22,
-      pillMainRatio: 0.46,
-      pillCrossRatio: 0.28,
+      pillCount: 10,
+      overlapRatio: 0.56,
+      pillMainRatio: 0.66,
+      pillCrossRatio: 0.45,
       backgroundTint: 7,
     },
   ),
-  prStops("Noir", ["#18181B", "#9F1239", "#FDA4AF"], "dark", "dark-to-light", {
-    pillCount: 11,
-    overlapRatio: 0.05,
-    pillMainRatio: 0.48,
-    pillCrossRatio: 0.3,
-    backgroundTint: 3.5,
-  }),
-  // Multi-colored · Dark · Liquid glass — cosmic haze vs oxidized metal
+  /** Diffuse clouds — merged glass, still substantial forms */
   prStops(
     "Nebula",
     ["#4C1D95", "#7C3AED", "#22D3EE", "#FB7185"],
     "dark",
     "dark-to-light",
     {
-      pillCount: 12,
-      overlapRatio: 0.16,
-      pillMainRatio: 0.5,
-      pillCrossRatio: 0.3,
+      pillCount: 10,
+      overlapRatio: 0.68,
+      pillMainRatio: 0.62,
+      pillCrossRatio: 0.44,
       backgroundTint: 5.5,
-    },
-    true,
-  ),
-  prStops(
-    "Patina",
-    ["#92400E", "#0D9488", "#EAB308", "#FFFBEB"],
-    "dark",
-    "dark-to-light",
-    {
-      pillCount: 7,
-      overlapRatio: -0.12,
-      pillMainRatio: 0.64,
-      pillCrossRatio: 0.26,
-      backgroundTint: 4,
     },
     true,
   ),

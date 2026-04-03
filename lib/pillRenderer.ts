@@ -1,5 +1,8 @@
 import { hexToHsl, wallpaperBackgroundFromBase } from "./colorUtils";
 
+/** Which end of the stack is painted last (in front) when pills overlap. */
+export type StackLayerOrder = "stack-start" | "stack-end";
+
 export interface WallpaperConfig {
   width: number;
   height: number;
@@ -9,6 +12,11 @@ export interface WallpaperConfig {
   pillOpacity: number;
   mode: "dark" | "light";
   stackDirection: "horizontal" | "vertical";
+  /**
+   * stack-start = first pill along the stack (left when horizontal, top when vertical) in front;
+   * stack-end = last pill (right / bottom) in front.
+   */
+  stackLayerOrder: StackLayerOrder;
   overlapRatio: number;
   pillMainRatio: number;
   pillCrossRatio: number;
@@ -50,6 +58,7 @@ export function renderWallpaper(
     pillOpacity,
     mode,
     stackDirection,
+    stackLayerOrder,
     overlapRatio,
     pillMainRatio,
     pillCrossRatio,
@@ -117,14 +126,18 @@ export function renderWallpaper(
     }
   }
 
+  const startOnTop = stackLayerOrder === "stack-start";
+  const drawIndices = startOnTop
+    ? Array.from({ length: pills.length }, (_, i) => pills.length - 1 - i)
+    : Array.from({ length: pills.length }, (_, i) => i);
+
   if (liquidGlass) {
-    drawLiquidGlassBackground(ctx, pills, mode, width, height);
-    // Draw back-to-front
-    for (let i = pills.length - 1; i >= 0; i--) {
+    drawLiquidGlassBackground(ctx, pills, mode, width, height, drawIndices);
+    for (const i of drawIndices) {
       drawLiquidGlassPill(ctx, pills[i], mode, scale);
     }
   } else {
-    for (let i = pills.length - 1; i >= 0; i--) {
+    for (const i of drawIndices) {
       const p = pills[i];
       const r = Math.min(p.w, p.h) / 2;
       ctx.save();
@@ -145,12 +158,14 @@ function drawLiquidGlassBackground(
   mode: "dark" | "light",
   width: number,
   height: number,
+  drawOrder: number[],
 ) {
   ctx.save();
   // Blend additive-ish: screen on dark, multiply-ish on light
   ctx.globalCompositeOperation = "source-over";
 
-  for (const p of pills) {
+  for (const idx of drawOrder) {
+    const p = pills[idx];
     const [h, s, l] = hexToHsl(p.color);
     const cx = p.x + p.w / 2;
     const cy = p.y + p.h / 2;
