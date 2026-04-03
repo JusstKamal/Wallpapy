@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   generatePillColorsFromPalette,
   hexToHsl,
@@ -118,6 +119,8 @@ export default function WallpaperGenerator() {
   const [config, setConfig] = useState<Config>(DEFAULT);
   /** Which preset “Reset” reapplies; updated when a preset chip is chosen. */
   const [selectedPresetIndex, setSelectedPresetIndex] = useState(0);
+  const [exportBusy, setExportBusy] = useState(false);
+  const exportLockRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const glCanvasRef = useRef<HTMLCanvasElement>(null);
   const dualCanvasARef = useRef<HTMLCanvasElement>(null);
@@ -308,11 +311,11 @@ export default function WallpaperGenerator() {
     return () => cancelAnimationFrame(id);
   }, [config.dualMonitor, config.dualSplit, syncDualPreview]);
 
-  const download = useCallback(() => {
+  const runExportSync = useCallback(() => {
     const bd = config.exportBitDepth;
     const bitSuffix = bd === 8 ? "" : `-${bd}bit`;
 
-    /** Same user gesture must trigger multiple downloads — no async delay. */
+    /** Same user gesture must trigger multiple downloads — no async delay between files. */
     const triggerDownload = (filename: string, dataUrl: string) => {
       const a = document.createElement("a");
       a.download = filename;
@@ -423,6 +426,20 @@ export default function WallpaperGenerator() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config, exportW, exportH]);
 
+  const download = useCallback(() => {
+    if (exportLockRef.current) return;
+    exportLockRef.current = true;
+    flushSync(() => setExportBusy(true));
+    window.setTimeout(() => {
+      try {
+        runExportSync();
+      } finally {
+        exportLockRef.current = false;
+        setExportBusy(false);
+      }
+    }, 0);
+  }, [runExportSync]);
+
   const applyPreset = (p: WallpaperPreset) =>
     setConfig((prev) => ({
       ...prev,
@@ -462,6 +479,19 @@ export default function WallpaperGenerator() {
 
   return (
     <div className="fixed inset-0 z-0 flex min-h-dvh flex-col overflow-hidden bg-[#0d0d0d] text-white">
+      {exportBusy && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-[2px] pointer-events-auto"
+          aria-busy="true"
+          aria-live="polite"
+          role="status"
+        >
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-white/10 bg-[#141414]/95 px-8 py-6 shadow-2xl">
+            <ExportSpinner className="h-9 w-9 text-white/90" accent={accent} />
+            <p className="text-[13px] text-white/75">Preparing export…</p>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -478,16 +508,18 @@ export default function WallpaperGenerator() {
         <button
           type="button"
           onClick={download}
-          className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium transition-all active:scale-[0.97] sm:gap-2 sm:px-4 sm:text-[13px] touch-manipulation"
+          disabled={exportBusy}
+          aria-busy={exportBusy}
+          className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium transition-all active:scale-[0.97] sm:gap-2 sm:px-4 sm:text-[13px] touch-manipulation disabled:opacity-75 disabled:pointer-events-none"
           style={{ background: accent, color: "#0d0d0d" }}
         >
-          <DownloadIcon />
+          {exportBusy ? (
+            <ExportSpinner className="h-[13px] w-[13px]" accent="#0d0d0d" />
+          ) : (
+            <DownloadIcon />
+          )}
           <span className="hidden sm:inline">
-            {config.dualMonitor
-              ? config.dualSplit === "left-right"
-                ? `Export 3 — ${exportW}×${exportH} full + ${Math.floor(exportW / 2)}×${exportH} + ${exportW - Math.floor(exportW / 2)}×${exportH}`
-                : `Export 3 — ${exportW}×${exportH} full + ${exportW}×${Math.floor(exportH / 2)} + ${exportW}×${exportH - Math.floor(exportH / 2)}`
-              : `Export ${exportW} × ${exportH}`}
+            Export {exportW} × {exportH}
           </span>
           <span className="sm:hidden">Export</span>
         </button>
@@ -1539,6 +1571,38 @@ function DownloadIcon() {
       strokeLinejoin="round"
     >
       <path d="M7 1v8M4 6l3 3 3-3M2 11h10" />
+    </svg>
+  );
+}
+
+function ExportSpinner({
+  className,
+  accent,
+}: {
+  className?: string;
+  accent: string;
+}) {
+  return (
+    <svg
+      className={`shrink-0 animate-spin ${className ?? ""}`}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        opacity="0.2"
+      />
+      <path
+        d="M22 12a10 10 0 0 0-10-10"
+        stroke={accent}
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
