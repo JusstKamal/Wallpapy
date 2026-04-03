@@ -12,6 +12,9 @@ import {
   generatePillColorsFromPalette,
   hexToHsl,
   mixHexHsl,
+  extractInitialPickerPositions,
+  sampleCanvasColor,
+  type PickerPosition,
 } from "@/lib/colorUtils";
 import {
   PRESETS,
@@ -171,7 +174,8 @@ export default function WallpaperGenerator() {
   const addPaletteStop = () =>
     setConfig((prev) => {
       if (prev.paletteColors.length >= 8) return prev;
-      const last = prev.paletteColors[prev.paletteColors.length - 1] ?? "#888888";
+      const last =
+        prev.paletteColors[prev.paletteColors.length - 1] ?? "#888888";
       return {
         ...prev,
         paletteColors: [
@@ -205,7 +209,9 @@ export default function WallpaperGenerator() {
     null,
   );
 
-  const [bgImageElement, setBgImageElement] = useState<HTMLImageElement | null>(null);
+  const [bgImageElement, setBgImageElement] = useState<HTMLImageElement | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!config.backgroundImage) {
@@ -219,8 +225,151 @@ export default function WallpaperGenerator() {
       glRendererRef.current?.setBackgroundImage(img);
     };
     img.src = config.backgroundImage;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.backgroundImage]);
+
+  // ── Color extractor ──────────────────────────────────────────────
+  const [showExtractor, setShowExtractor] = useState(false);
+  const [extractorDataUrl, setExtractorDataUrl] = useState<string | null>(null);
+  const [extractorImage, setExtractorImage] = useState<HTMLImageElement | null>(
+    null,
+  );
+  const [extractorPositions, setExtractorPositions] = useState<
+    PickerPosition[]
+  >([]);
+  const [extractorDragging, setExtractorDragging] = useState<number | null>(
+    null,
+  );
+  /** Downsampled canvas used for fast pixel sampling during drag */
+  const extractorCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  /** Ref to the displayed <img> element inside the modal for hit-testing */
+  const extractorImgRef = useRef<HTMLImageElement | null>(null);
+  /** Small canvas shown as wallpaper preview inside the modal */
+  const extractorPreviewRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Keep the modal's wallpaper preview in sync with the main canvas
+  useEffect(() => {
+    if (!showExtractor) return;
+    // Double-rAF so the main canvas effects have had time to paint first
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const dst = extractorPreviewRef.current;
+        if (!dst) return;
+        const src = config.liquidGlass
+          ? glCanvasRef.current
+          : canvasRef.current;
+        if (!src) return;
+        dst.width = dst.offsetWidth || 240;
+        dst.height = dst.offsetHeight || 135;
+        dst.getContext("2d")!.drawImage(src, 0, 0, dst.width, dst.height);
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [config, showExtractor]);
+
+  const openExtractor = () => setShowExtractor(true);
+
+  const handleExtractorUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      setExtractorDataUrl(dataUrl);
+      const img = new Image();
+      img.onload = () => {
+        setExtractorImage(img);
+        // Build downsampled sampler canvas (max 512px)
+        const maxSide = 512;
+        const scale = Math.min(
+          1,
+          maxSide / Math.max(img.naturalWidth, img.naturalHeight),
+        );
+        const cw = Math.max(1, Math.round(img.naturalWidth * scale));
+        const ch = Math.max(1, Math.round(img.naturalHeight * scale));
+        const cvs = document.createElement("canvas");
+        cvs.width = cw;
+        cvs.height = ch;
+        cvs.getContext("2d")!.drawImage(img, 0, 0, cw, ch);
+        extractorCanvasRef.current = cvs;
+
+        const count = config.paletteColors.length;
+        const positions = extractInitialPickerPositions(img, count);
+        setExtractorPositions(positions);
+        const newColors = positions.map((p) =>
+          sampleCanvasColor(cvs, p.x, p.y),
+        );
+        setConfig((prev) => ({ ...prev, paletteColors: newColors }));
+        setShowExtractor(true);
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const reshuffleExtractor = () => {
+    if (!extractorImage || !extractorCanvasRef.current) return;
+    const count = config.paletteColors.length;
+    const positions = extractInitialPickerPositions(extractorImage, count);
+    setExtractorPositions(positions);
+    const newColors = positions.map((p) =>
+      sampleCanvasColor(extractorCanvasRef.current!, p.x, p.y),
+    );
+    setConfig((prev) => ({ ...prev, paletteColors: newColors }));
+  };
+
+  const addExtractorStop = () => {
+    if (config.paletteColors.length >= 8 || !extractorCanvasRef.current) return;
+    // Place the new marker at the center of the image
+    const x = 0.5,
+      y = 0.5;
+    const color = sampleCanvasColor(extractorCanvasRef.current, x, y);
+    setExtractorPositions((prev) => [...prev, { x, y }]);
+    setConfig((prev) => ({
+      ...prev,
+      paletteColors: [...prev.paletteColors, color],
+    }));
+  };
+
+  const removeExtractorStop = () => {
+    if (config.paletteColors.length <= 1) return;
+    setExtractorPositions((prev) => prev.slice(0, -1));
+    setConfig((prev) => ({
+      ...prev,
+      paletteColors: prev.paletteColors.slice(0, -1),
+    }));
+  };
+
+  const handleMarkerPointerDown = (
+    e: React.PointerEvent<HTMLDivElement>,
+    idx: number,
+  ) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setExtractorDragging(idx);
+  };
+
+  const handleMarkerPointerMove = (
+    e: React.PointerEvent<HTMLDivElement>,
+    idx: number,
+  ) => {
+    if (
+      extractorDragging !== idx ||
+      !extractorImgRef.current ||
+      !extractorCanvasRef.current
+    )
+      return;
+    const rect = extractorImgRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const newPositions = [...extractorPositions];
+    newPositions[idx] = { x, y };
+    setExtractorPositions(newPositions);
+    const color = sampleCanvasColor(extractorCanvasRef.current, x, y);
+    setPaletteColor(idx, color);
+  };
+
+  const handleMarkerPointerUp = () => setExtractorDragging(null);
 
   const handleBgImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -423,12 +572,18 @@ export default function WallpaperGenerator() {
       const fullUrl = canvasToDataURLWithBitDepth(full, bd);
 
       if (!config.dualMonitor) {
-        triggerDownload(`${base}-${exportW}x${exportH}${bitSuffix}.png`, fullUrl);
+        triggerDownload(
+          `${base}-${exportW}x${exportH}${bitSuffix}.png`,
+          fullUrl,
+        );
         return;
       }
 
       /** Combined span + per-display files (same click gesture). */
-      triggerDownload(`${base}-${exportW}x${exportH}-Full${bitSuffix}.png`, fullUrl);
+      triggerDownload(
+        `${base}-${exportW}x${exportH}-Full${bitSuffix}.png`,
+        fullUrl,
+      );
 
       if (config.dualSplit === "left-right") {
         const wL = Math.floor(exportW / 2);
@@ -465,7 +620,10 @@ export default function WallpaperGenerator() {
         const urlT = canvasToDataURLWithBitDepth(cT, bd);
         const urlB = canvasToDataURLWithBitDepth(cB, bd);
         triggerDownload(`${base}-${exportW}x${hT}-Top${bitSuffix}.png`, urlT);
-        triggerDownload(`${base}-${exportW}x${hB}-Bottom${bitSuffix}.png`, urlB);
+        triggerDownload(
+          `${base}-${exportW}x${hB}-Bottom${bitSuffix}.png`,
+          urlB,
+        );
       }
     };
 
@@ -569,11 +727,7 @@ export default function WallpaperGenerator() {
   const previewFrameStyle: React.CSSProperties = {
     aspectRatio: `${ar.w} / ${ar.h}`,
     maxHeight: `calc(${previewSlot})`,
-    maxWidth: isPortrait
-      ? isMdUp
-        ? "min(50%, 100%)"
-        : "100%"
-      : "100%",
+    maxWidth: isPortrait ? (isMdUp ? "min(50%, 100%)" : "100%") : "100%",
     width: isPortrait
       ? isMdUp
         ? `min(min(50%, 100%), calc(${previewSlot} * ${ar.w / ar.h}))`
@@ -657,15 +811,13 @@ export default function WallpaperGenerator() {
                       p.mode,
                       p.firstPillIntensity,
                       p.lastPillIntensity,
-                    ).map(
-                      (c, i) => (
-                        <div
-                          key={i}
-                          className="flex-1"
-                          style={{ background: c }}
-                        />
-                      ),
-                    )}
+                    ).map((c, i) => (
+                      <div
+                        key={i}
+                        className="flex-1"
+                        style={{ background: c }}
+                      />
+                    ))}
                   </div>
                   <span
                     className={`text-[11px] transition-colors ${
@@ -828,6 +980,26 @@ export default function WallpaperGenerator() {
             >
               Add color stop
             </button>
+            {/* Extract colors from image */}
+            <label className="mt-1.5 flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-[12px] border border-white/[0.08] text-white/45 hover:text-white/70 hover:border-white/15 cursor-pointer transition-colors">
+              <EyedropperIcon />
+              {extractorImage ? "Re-pick from image" : "Pick from image"}
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={handleExtractorUpload}
+              />
+            </label>
+            {extractorImage && (
+              <button
+                type="button"
+                onClick={openExtractor}
+                className="mt-1 w-full py-1.5 rounded-lg text-[11px] border border-white/[0.06] text-white/35 hover:text-white/55 hover:border-white/12 transition-colors"
+              >
+                Adjust eyedroppers
+              </button>
+            )}
             <div
               className="flex mt-3 rounded-lg overflow-hidden border border-white/[0.08]"
               style={{ height: 24, opacity: config.pillOpacity }}
@@ -994,9 +1166,7 @@ export default function WallpaperGenerator() {
                       ]) as readonly [StackLayerOrder, string][]
                 }
                 value={config.stackLayerOrder}
-                onChange={(v) =>
-                  set("stackLayerOrder", v as StackLayerOrder)
-                }
+                onChange={(v) => set("stackLayerOrder", v as StackLayerOrder)}
               />
             </div>
           </Section>
@@ -1419,68 +1589,74 @@ export default function WallpaperGenerator() {
               </div>
               {config.arIndex === ASPECT_CUSTOM_INDEX && (
                 <>
-                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2">
-                  <span className="text-[11px] text-white/35 shrink-0">W : H</span>
-                  <input
-                    type="number"
-                    min={0.01}
-                    max={ASPECT_RATIO_PART_MAX}
-                    step="any"
-                    aria-label="Custom aspect width"
-                    value={config.customAspectW}
-                    onChange={(e) => {
-                      const n = parseFloat(e.target.value);
-                      if (!Number.isFinite(n)) return;
-                      setConfig((prev) => {
-                        const w = clampAspectRatioPart(n);
-                        const { w: nw, h: nh } = normalizeCustomAspectPair(
-                          w,
-                          prev.customAspectH,
-                        );
-                        return {
-                          ...prev,
-                          customAspectW: nw,
-                          customAspectH: nh,
-                          stackDirection:
-                            stackDirectionForAspectRatio(nw, nh),
-                        };
-                      });
-                    }}
-                    className="min-w-[4.5rem] flex-1 rounded-md border border-white/[0.1] bg-black/30 px-2 py-1.5 text-[12px] font-mono text-white/90 focus:border-white/25 focus:outline-none"
-                  />
-                  <span className="text-white/25 font-mono">:</span>
-                  <input
-                    type="number"
-                    min={0.01}
-                    max={ASPECT_RATIO_PART_MAX}
-                    step="any"
-                    aria-label="Custom aspect height"
-                    value={config.customAspectH}
-                    onChange={(e) => {
-                      const n = parseFloat(e.target.value);
-                      if (!Number.isFinite(n)) return;
-                      setConfig((prev) => {
-                        const h = clampAspectRatioPart(n);
-                        const { w: nw, h: nh } = normalizeCustomAspectPair(
-                          prev.customAspectW,
-                          h,
-                        );
-                        return {
-                          ...prev,
-                          customAspectW: nw,
-                          customAspectH: nh,
-                          stackDirection:
-                            stackDirectionForAspectRatio(nw, nh),
-                        };
-                      });
-                    }}
-                    className="min-w-[4.5rem] flex-1 rounded-md border border-white/[0.1] bg-black/30 px-2 py-1.5 text-[12px] font-mono text-white/90 focus:border-white/25 focus:outline-none"
-                  />
-                </div>
-                <p className="mt-2 text-[11px] text-white/25 leading-snug">
-                  Longer side at most {ASPECT_MAX_SIDE_RATIO}× the shorter (each
-                  value 0.01–{ASPECT_RATIO_PART_MAX}).
-                </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2">
+                    <span className="text-[11px] text-white/35 shrink-0">
+                      W : H
+                    </span>
+                    <input
+                      type="number"
+                      min={0.01}
+                      max={ASPECT_RATIO_PART_MAX}
+                      step="any"
+                      aria-label="Custom aspect width"
+                      value={config.customAspectW}
+                      onChange={(e) => {
+                        const n = parseFloat(e.target.value);
+                        if (!Number.isFinite(n)) return;
+                        setConfig((prev) => {
+                          const w = clampAspectRatioPart(n);
+                          const { w: nw, h: nh } = normalizeCustomAspectPair(
+                            w,
+                            prev.customAspectH,
+                          );
+                          return {
+                            ...prev,
+                            customAspectW: nw,
+                            customAspectH: nh,
+                            stackDirection: stackDirectionForAspectRatio(
+                              nw,
+                              nh,
+                            ),
+                          };
+                        });
+                      }}
+                      className="min-w-[4.5rem] flex-1 rounded-md border border-white/[0.1] bg-black/30 px-2 py-1.5 text-[12px] font-mono text-white/90 focus:border-white/25 focus:outline-none"
+                    />
+                    <span className="text-white/25 font-mono">:</span>
+                    <input
+                      type="number"
+                      min={0.01}
+                      max={ASPECT_RATIO_PART_MAX}
+                      step="any"
+                      aria-label="Custom aspect height"
+                      value={config.customAspectH}
+                      onChange={(e) => {
+                        const n = parseFloat(e.target.value);
+                        if (!Number.isFinite(n)) return;
+                        setConfig((prev) => {
+                          const h = clampAspectRatioPart(n);
+                          const { w: nw, h: nh } = normalizeCustomAspectPair(
+                            prev.customAspectW,
+                            h,
+                          );
+                          return {
+                            ...prev,
+                            customAspectW: nw,
+                            customAspectH: nh,
+                            stackDirection: stackDirectionForAspectRatio(
+                              nw,
+                              nh,
+                            ),
+                          };
+                        });
+                      }}
+                      className="min-w-[4.5rem] flex-1 rounded-md border border-white/[0.1] bg-black/30 px-2 py-1.5 text-[12px] font-mono text-white/90 focus:border-white/25 focus:outline-none"
+                    />
+                  </div>
+                  <p className="mt-2 text-[11px] text-white/25 leading-snug">
+                    Longer side at most {ASPECT_MAX_SIDE_RATIO}× the shorter
+                    (each value 0.01–{ASPECT_RATIO_PART_MAX}).
+                  </p>
                 </>
               )}
             </div>
@@ -1505,7 +1681,9 @@ export default function WallpaperGenerator() {
 
           <Section label="Dual monitor">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-[12px] text-white/45">Split preview & export</span>
+              <span className="text-[12px] text-white/45">
+                Split preview & export
+              </span>
               <button
                 type="button"
                 onClick={() =>
@@ -1518,9 +1696,7 @@ export default function WallpaperGenerator() {
                         (q) => q.label === "5K",
                       );
                       const { w, h } =
-                        ar32x9 >= 0
-                          ? ASPECT_RATIOS[ar32x9]
-                          : { w: 32, h: 9 };
+                        ar32x9 >= 0 ? ASPECT_RATIOS[ar32x9] : { w: 32, h: 9 };
                       return {
                         ...prev,
                         dualMonitor: true,
@@ -1543,9 +1719,7 @@ export default function WallpaperGenerator() {
                 <div
                   className="absolute top-0.5 w-4 h-4 rounded-full transition-all duration-150"
                   style={{
-                    left: config.dualMonitor
-                      ? "calc(100% - 18px)"
-                      : "2px",
+                    left: config.dualMonitor ? "calc(100% - 18px)" : "2px",
                     background: config.dualMonitor
                       ? "#0d0d0d"
                       : "rgba(255,255,255,0.4)",
@@ -1588,9 +1762,9 @@ export default function WallpaperGenerator() {
               accent={accent}
             />
             <p className="text-[11px] text-white/20 mt-1">
-              Offsets every other pill along the cross axis; negative values flip
-              which side goes first. Scale is % of pill thickness (height in a
-              row, width in a column).
+              Offsets every other pill along the cross axis; negative values
+              flip which side goes first. Scale is % of pill thickness (height
+              in a row, width in a column).
             </p>
           </Section>
 
@@ -1610,8 +1784,8 @@ export default function WallpaperGenerator() {
             />
             <p className="text-[11px] text-white/20 mt-2">
               Export applies per-channel quantization. PNG files use 8-bit
-              samples; higher settings reduce banding when viewed on wide-gamut /
-              HDR displays.
+              samples; higher settings reduce banding when viewed on wide-gamut
+              / HDR displays.
             </p>
           </Section>
 
@@ -1752,6 +1926,192 @@ export default function WallpaperGenerator() {
           </div>
         </main>
       </div>
+
+      {/* ── Color extractor modal ── */}
+      {showExtractor && extractorImage && extractorDataUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5"
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) setShowExtractor(false);
+          }}
+        >
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+
+          {/* Panel */}
+          <div
+            className="relative flex flex-col rounded-2xl border border-white/[0.1] bg-[#18181c] shadow-2xl overflow-hidden"
+            style={{ maxWidth: "min(960px, 96vw)", width: "100%" }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/[0.07]">
+              <div>
+                <p className="text-[13px] font-semibold text-white/80">
+                  Pick colors from image
+                </p>
+                <p className="text-[11px] text-white/35 mt-0.5">
+                  Drag markers · preview updates live
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={reshuffleExtractor}
+                  className="flex items-center gap-1.5 rounded-lg border border-white/[0.1] px-3 py-1.5 text-[11px] text-white/45 hover:text-white/70 hover:border-white/20 transition-colors"
+                >
+                  <ShuffleIcon />
+                  Reshuffle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowExtractor(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.1] text-white/40 hover:text-white/70 hover:border-white/20 transition-colors text-[18px] leading-none"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Body: source image (left) + wallpaper preview (right) */}
+            <div
+              className="flex flex-col sm:flex-row overflow-hidden"
+              style={{ maxHeight: "65vh" }}
+            >
+              {/* Source image + markers */}
+              <div className="relative flex-1 bg-black/40 overflow-hidden select-none min-w-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  ref={(el) => {
+                    extractorImgRef.current = el;
+                  }}
+                  src={extractorDataUrl}
+                  alt="Color source"
+                  className="block w-full h-full object-contain"
+                  style={{ userSelect: "none", pointerEvents: "none" }}
+                  draggable={false}
+                />
+
+                {/* Eyedropper markers */}
+                {extractorPositions.map((pos, idx) => {
+                  const color = config.paletteColors[idx] ?? "#808080";
+                  const isDragging = extractorDragging === idx;
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        position: "absolute",
+                        left: `${pos.x * 100}%`,
+                        top: `${pos.y * 100}%`,
+                        transform: "translate(-50%, -50%)",
+                        touchAction: "none",
+                        cursor: isDragging ? "grabbing" : "grab",
+                        zIndex: isDragging ? 10 : idx + 1,
+                      }}
+                      onPointerDown={(e) => handleMarkerPointerDown(e, idx)}
+                      onPointerMove={(e) => handleMarkerPointerMove(e, idx)}
+                      onPointerUp={handleMarkerPointerUp}
+                      onPointerCancel={handleMarkerPointerUp}
+                    >
+                      <div
+                        className="rounded-full"
+                        style={{
+                          width: 32,
+                          height: 32,
+                          background: color,
+                          border: "3px solid rgba(255,255,255,0.9)",
+                          boxShadow:
+                            "0 2px 10px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.3)",
+                          transform: isDragging ? "scale(1.25)" : "scale(1)",
+                          transition: isDragging
+                            ? "none"
+                            : "transform 0.15s ease",
+                        }}
+                      />
+                      <div
+                        className="absolute -bottom-1 -right-1 rounded-full flex items-center justify-center"
+                        style={{
+                          width: 14,
+                          height: 14,
+                          background: "#18181c",
+                          border: "1.5px solid rgba(255,255,255,0.2)",
+                          fontSize: 8,
+                          fontWeight: 700,
+                          color: "rgba(255,255,255,0.7)",
+                          lineHeight: 1,
+                        }}
+                      >
+                        {idx + 1}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Wallpaper preview panel */}
+              <div className="shrink-0 flex flex-col border-t sm:border-t-0 sm:border-l border-white/[0.07] sm:w-56">
+                <p className="text-[10px] uppercase tracking-widest text-white/25 px-4 pt-3 pb-1.5">
+                  Preview
+                </p>
+                <div className="flex-1 flex items-center justify-center px-3 pb-3">
+                  <canvas
+                    ref={(el) => {
+                      extractorPreviewRef.current = el;
+                    }}
+                    className="w-full rounded-lg"
+                    style={{ aspectRatio: `${ar.w} / ${ar.h}` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Footer — add/remove stops + done */}
+            <div className="flex items-center gap-3 px-5 py-3 border-t border-white/[0.07]">
+              {/* Remove stop */}
+              <button
+                type="button"
+                onClick={removeExtractorStop}
+                disabled={config.paletteColors.length <= 1}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.1] text-[16px] leading-none text-white/40 hover:text-white/70 hover:border-white/20 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                aria-label="Remove color stop"
+              >
+                −
+              </button>
+
+              {/* Color swatches */}
+              <div className="flex gap-1.5 flex-1 flex-wrap items-center">
+                {config.paletteColors.map((c, i) => (
+                  <div
+                    key={i}
+                    className="h-5 w-5 rounded-full border-2 border-white/30 transition-transform hover:scale-110"
+                    style={{ background: c }}
+                    title={c}
+                  />
+                ))}
+              </div>
+
+              {/* Add stop */}
+              <button
+                type="button"
+                onClick={addExtractorStop}
+                disabled={config.paletteColors.length >= 8}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.1] text-[16px] leading-none text-white/40 hover:text-white/70 hover:border-white/20 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                aria-label="Add color stop"
+              >
+                +
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowExtractor(false)}
+                className="shrink-0 rounded-lg bg-white/10 px-4 py-1.5 text-[12px] font-medium text-white/80 hover:bg-white/15 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1979,6 +2339,42 @@ function DownloadIcon() {
       strokeLinejoin="round"
     >
       <path d="M7 1v8M4 6l3 3 3-3M2 11h10" />
+    </svg>
+  );
+}
+
+function EyedropperIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M11 2a2.83 2.83 0 0 1 4 4l-1.5 1.5-4-4L11 2Z" />
+      <path d="M9.5 3.5 3 10l-.5 3.5L6 13l6.5-6.5" />
+      <path d="m2 14 1-1" />
+    </svg>
+  );
+}
+
+function ShuffleIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M10 3h3v3M3 13l10-10M13 10v3h-3M3 3l4 4" />
     </svg>
   );
 }

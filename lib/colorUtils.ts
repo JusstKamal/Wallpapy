@@ -231,6 +231,103 @@ export function generatePillColorsMulti(
   return applyEndIntensityToRamp(ordered, firstPillIntensity, lastPillIntensity);
 }
 
+// ── Color extraction from image ─────────────────────────────────
+
+export type PickerPosition = { x: number; y: number };
+
+/**
+ * Run k-means++ on a downsampled version of `img` to find `count` dominant-color
+ * spatial positions. Returns relative positions in [0, 1] for each cluster centroid.
+ */
+export function extractInitialPickerPositions(
+  img: HTMLImageElement,
+  count: number,
+): PickerPosition[] {
+  const K = Math.max(1, Math.min(count, 8));
+  const W = 80, H = 80;
+  const cvs = document.createElement("canvas");
+  cvs.width = W; cvs.height = H;
+  const ctx = cvs.getContext("2d")!;
+  ctx.drawImage(img, 0, 0, W, H);
+  const { data } = ctx.getImageData(0, 0, W, H);
+
+  type Pt = { r: number; g: number; b: number; px: number; py: number };
+  const pixels: Pt[] = [];
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      if (data[i + 3] < 128) continue;
+      pixels.push({ r: data[i], g: data[i + 1], b: data[i + 2], px: x, py: y });
+    }
+  }
+
+  if (pixels.length < K) {
+    return Array.from({ length: K }, (_, i) => ({ x: (i + 0.5) / K, y: 0.5 }));
+  }
+
+  // k-means++ initialisation
+  const centers: Pt[] = [];
+  centers.push(pixels[Math.floor(Math.random() * pixels.length)]);
+  while (centers.length < K) {
+    const dists = pixels.map((p) => {
+      let minD = Infinity;
+      for (const c of centers) {
+        const d = (p.r - c.r) ** 2 + (p.g - c.g) ** 2 + (p.b - c.b) ** 2;
+        if (d < minD) minD = d;
+      }
+      return minD;
+    });
+    const total = dists.reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    let next = pixels.length - 1;
+    for (let i = 0; i < dists.length; i++) {
+      r -= dists[i];
+      if (r <= 0) { next = i; break; }
+    }
+    centers.push({ ...pixels[next] });
+  }
+
+  // Iterate k-means
+  for (let iter = 0; iter < 20; iter++) {
+    const clusters: Pt[][] = Array.from({ length: K }, () => []);
+    for (const p of pixels) {
+      let best = 0, bestD = Infinity;
+      for (let j = 0; j < K; j++) {
+        const d = (p.r - centers[j].r) ** 2 + (p.g - centers[j].g) ** 2 + (p.b - centers[j].b) ** 2;
+        if (d < bestD) { bestD = d; best = j; }
+      }
+      clusters[best].push(p);
+    }
+    let moved = false;
+    for (let j = 0; j < K; j++) {
+      if (clusters[j].length === 0) continue;
+      const nr = clusters[j].reduce((a, p) => a + p.r, 0) / clusters[j].length;
+      const ng = clusters[j].reduce((a, p) => a + p.g, 0) / clusters[j].length;
+      const nb = clusters[j].reduce((a, p) => a + p.b, 0) / clusters[j].length;
+      const npx = clusters[j].reduce((a, p) => a + p.px, 0) / clusters[j].length;
+      const npy = clusters[j].reduce((a, p) => a + p.py, 0) / clusters[j].length;
+      if (Math.abs(nr - centers[j].r) + Math.abs(ng - centers[j].g) > 0.5) moved = true;
+      centers[j] = { r: nr, g: ng, b: nb, px: npx, py: npy };
+    }
+    if (!moved) break;
+  }
+
+  return centers.map((c) => ({
+    x: Math.max(0, Math.min(1, c.px / (W - 1))),
+    y: Math.max(0, Math.min(1, c.py / (H - 1))),
+  }));
+}
+
+/** Sample a hex color from a canvas at relative position (rx, ry) in [0, 1]. */
+export function sampleCanvasColor(cvs: HTMLCanvasElement, rx: number, ry: number): string {
+  const ctx = cvs.getContext("2d");
+  if (!ctx) return "#808080";
+  const x = Math.max(0, Math.min(cvs.width - 1, Math.round(rx * (cvs.width - 1))));
+  const y = Math.max(0, Math.min(cvs.height - 1, Math.round(ry * (cvs.height - 1))));
+  const d = ctx.getImageData(x, y, 1, 1).data;
+  return `#${d[0].toString(16).padStart(2, "0")}${d[1].toString(16).padStart(2, "0")}${d[2].toString(16).padStart(2, "0")}`;
+}
+
 /**
  * Single base color uses lightness ramp; two or more palette stops blend along the stack.
  */
