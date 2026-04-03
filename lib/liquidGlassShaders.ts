@@ -26,6 +26,11 @@ uniform int   u_stackStartOnTop;
 uniform float u_shadowExpand;
 uniform float u_shadowFactor;
 uniform vec2  u_shadowPosition;
+uniform sampler2D u_bgTexture;
+uniform int   u_hasImageBg;
+uniform vec3  u_imageTintColor;
+uniform float u_imageTintAmount;
+uniform float u_imageBrightness;
 
 // Returns SDF normalized by u_resolution.y (negative inside, positive outside)
 float pillSDF(vec2 frag, vec2 center, float hw, float hh) {
@@ -47,7 +52,14 @@ float allPillsSDF(vec2 frag) {
 
 void main() {
   vec2 res1x = u_resolution / u_dpr;
-  vec3 col = u_bgColor;
+  vec3 col;
+  if (u_hasImageBg == 1) {
+    col = texture(u_bgTexture, v_uv).rgb;
+    col = mix(col, u_imageTintColor, u_imageTintAmount);
+    col = clamp(col + vec3(u_imageBrightness * 0.5), 0.0, 1.0);
+  } else {
+    col = u_bgColor;
+  }
 
   // Paint pills back-to-front (order matches stackLayerOrder: start-on-top → high index first)
   for (int k = 0; k < MAX_PILLS; k++) {

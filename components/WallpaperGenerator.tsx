@@ -42,6 +42,16 @@ import {
   canvasToDataURLWithBitDepth,
   type ExportBitDepth,
 } from "@/lib/exportBitDepth";
+import packageJson from "@/package.json";
+
+const SOCIAL_LINKS = [
+  { label: "YouTube", href: "https://www.youtube.com/@JusstKamal" },
+  { label: "TikTok", href: "https://www.tiktok.com/@JusstKamal" },
+  { label: "Facebook", href: "https://www.facebook.com/JusstKamal" },
+  { label: "Instagram", href: "https://www.instagram.com/JusstKamal" },
+  { label: "GitHub", href: "https://github.com/JusstKamal" },
+  { label: "LinkedIn", href: "https://www.linkedin.com/feed/" },
+] as const;
 
 interface Config {
   /** One color = single-hue lightness ramp; two+ = gradient between stops along the stack. */
@@ -72,6 +82,12 @@ interface Config {
   backgroundTint: number;
   /** -1..1 where negative darkens and positive brightens the background. */
   backgroundBrightness: number;
+  /** Base64 data URL of uploaded background image, or null for solid color. */
+  backgroundImage: string | null;
+  /** Index into paletteColors used for background tinting (default 0). */
+  backgroundTintColorIndex: number;
+  /** Gaussian blur radius in px applied to background image (0 = sharp). */
+  backgroundBlur: number;
   /** Alternating per-pill stagger (fraction of pill thickness); sign flips wobble direction */
   pillStagger: number;
   /** RGB export quantization (PNG samples stay 8-bit; simulates 10/12-bit precision). */
@@ -99,6 +115,9 @@ const DEFAULT: Config = {
   exportBitDepth: 8,
   dualMonitor: false,
   dualSplit: "left-right",
+  backgroundImage: null,
+  backgroundTintColorIndex: 0,
+  backgroundBlur: 0,
 };
 
 /** Portrait canvas → vertical stack; landscape → horizontal (pills run along the long axis). */
@@ -186,7 +205,41 @@ export default function WallpaperGenerator() {
     null,
   );
 
+  const [bgImageElement, setBgImageElement] = useState<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (!config.backgroundImage) {
+      setBgImageElement(null);
+      glRendererRef.current?.setBackgroundImage(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      setBgImageElement(img);
+      glRendererRef.current?.setBackgroundImage(img);
+    };
+    img.src = config.backgroundImage;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.backgroundImage]);
+
+  const handleBgImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      set("backgroundImage", dataUrl);
+    };
+    reader.readAsDataURL(file);
+    // Reset input so the same file can be re-uploaded
+    e.target.value = "";
+  };
+
   const baseColor = config.paletteColors[0] ?? "#6D28D9";
+  const tintColor =
+    config.paletteColors[
+      Math.min(config.backgroundTintColorIndex, config.paletteColors.length - 1)
+    ] ?? baseColor;
   const colors = generatePillColorsFromPalette(
     config.paletteColors,
     config.pillCount,
@@ -221,7 +274,7 @@ export default function WallpaperGenerator() {
     config.pillMainRatio,
     config.pillCrossRatio,
     config.mode,
-    baseColor,
+    tintColor,
     config.backgroundTint,
     config.backgroundBrightness,
     config.pillStagger,
@@ -276,15 +329,17 @@ export default function WallpaperGenerator() {
       overlapRatio: config.overlapRatio,
       pillMainRatio: config.pillMainRatio,
       pillCrossRatio: config.pillCrossRatio,
-      baseColor,
+      tintColor,
       backgroundTint: config.backgroundTint,
       backgroundBrightness: config.backgroundBrightness,
+      backgroundImage: bgImageElement,
+      backgroundBlur: config.backgroundBlur,
       pillStagger: config.pillStagger,
       liquidGlass: false,
     });
     requestAnimationFrame(() => syncDualPreview());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, syncDualPreview]);
+  }, [config, bgImageElement, syncDualPreview]);
 
   // ── WebGL liquid glass preview ────────────────────────────────
   useEffect(() => {
@@ -301,6 +356,9 @@ export default function WallpaperGenerator() {
         canvas.width = cw;
         canvas.height = ch;
         glRendererRef.current = new LiquidGlassRenderer(canvas);
+        if (bgImageElement) {
+          glRendererRef.current.setBackgroundImage(bgImageElement);
+        }
       } catch (e) {
         console.error("WebGL init failed:", e);
         return;
@@ -315,10 +373,18 @@ export default function WallpaperGenerator() {
 
     const geo = computePillGeometry(cw, ch, ...pillGeoArgs);
     const glassForPreview = scaleGlassParamsToCanvas(config.glass, cw, ch);
-    glRendererRef.current.render(geo, glassForPreview, dpr);
+    const imageBg = bgImageElement
+      ? {
+          tintColor,
+          tintAmount: (config.backgroundTint / 10) * 0.75,
+          brightness: config.backgroundBrightness,
+          blur: config.backgroundBlur,
+        }
+      : undefined;
+    glRendererRef.current.render(geo, glassForPreview, dpr, imageBg);
     requestAnimationFrame(() => syncDualPreview());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, syncDualPreview]);
+  }, [config, bgImageElement, syncDualPreview]);
 
   // Dispose WebGL renderer when switching off
   useEffect(() => {
@@ -415,8 +481,19 @@ export default function WallpaperGenerator() {
           exportH,
         );
         renderer = new LiquidGlassRenderer(offscreen);
+        if (bgImageElement) {
+          renderer.setBackgroundImage(bgImageElement);
+        }
         const geo = computePillGeometry(exportW, exportH, ...pillGeoArgs);
-        renderer.render(geo, glassForExport, 1);
+        const exportImageBg = bgImageElement
+          ? {
+              tintColor,
+              tintAmount: (config.backgroundTint / 10) * 0.75,
+              brightness: config.backgroundBrightness,
+              blur: config.backgroundBlur,
+            }
+          : undefined;
+        renderer.render(geo, glassForExport, 1, exportImageBg);
         exportFromFullCanvas(offscreen);
       } catch (e) {
         console.error("Export failed:", e);
@@ -439,9 +516,11 @@ export default function WallpaperGenerator() {
         overlapRatio: config.overlapRatio,
         pillMainRatio: config.pillMainRatio,
         pillCrossRatio: config.pillCrossRatio,
-        baseColor,
+        tintColor,
         backgroundTint: config.backgroundTint,
         backgroundBrightness: config.backgroundBrightness,
+        backgroundImage: bgImageElement,
+        backgroundBlur: config.backgroundBlur,
         pillStagger: config.pillStagger,
         liquidGlass: false,
       });
@@ -757,6 +836,84 @@ export default function WallpaperGenerator() {
                 <div key={i} className="flex-1" style={{ background: c }} />
               ))}
             </div>
+            {/* Background image upload */}
+            <div className="mt-3">
+              <p className="mb-1.5 text-[10px] uppercase tracking-wide text-white/35">
+                Background image
+              </p>
+              {bgImageElement ? (
+                <div className="flex items-center gap-2">
+                  <div
+                    className="h-10 w-16 shrink-0 rounded-md overflow-hidden border border-white/[0.08]"
+                    style={{
+                      backgroundImage: `url(${config.backgroundImage})`,
+                      backgroundSize: "cover",
+                      backgroundPosition: "center",
+                    }}
+                  />
+                  <span className="flex-1 text-[11px] text-white/40 truncate">
+                    {bgImageElement.naturalWidth}×{bgImageElement.naturalHeight}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => set("backgroundImage", null)}
+                    className="text-[11px] text-white/40 hover:text-white/70 border border-white/[0.08] hover:border-white/15 rounded-md px-2 py-1 transition-colors shrink-0"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center justify-center w-full py-2 rounded-lg text-[12px] border border-white/[0.08] border-dashed text-white/45 hover:text-white/70 hover:border-white/15 cursor-pointer transition-colors">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={handleBgImageUpload}
+                  />
+                  Upload image
+                </label>
+              )}
+            </div>
+
+            {/* Tint color selector — pick which palette color tints the background */}
+            {config.paletteColors.length > 1 && (
+              <div className="mt-3">
+                <p className="mb-1.5 text-[10px] uppercase tracking-wide text-white/35">
+                  Tint color
+                </p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {config.paletteColors.map((c, i) => {
+                    const selected =
+                      i ===
+                      Math.min(
+                        config.backgroundTintColorIndex,
+                        config.paletteColors.length - 1,
+                      );
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => set("backgroundTintColorIndex", i)}
+                        className="h-6 w-6 rounded-full transition-all"
+                        style={{
+                          background: c,
+                          outline: selected
+                            ? `2px solid ${c}`
+                            : "2px solid transparent",
+                          outlineOffset: selected ? "2px" : "0px",
+                          boxShadow: selected
+                            ? "0 0 0 1px rgba(255,255,255,0.3)"
+                            : "none",
+                        }}
+                        aria-label={`Use color ${i + 1} for tint`}
+                        aria-pressed={selected}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="mt-3">
               <Slider
                 label="Background tint"
@@ -781,6 +938,20 @@ export default function WallpaperGenerator() {
                 accent={accent}
               />
             </div>
+            {bgImageElement && (
+              <div className="mt-2">
+                <Slider
+                  label="Background blur"
+                  value={config.backgroundBlur}
+                  min={0}
+                  max={100}
+                  step={1}
+                  display={`${config.backgroundBlur}px`}
+                  onChange={(v) => set("backgroundBlur", v)}
+                  accent={accent}
+                />
+              </div>
+            )}
           </Section>
 
           <Section label="Mode">
@@ -1537,6 +1708,47 @@ export default function WallpaperGenerator() {
                 </>
               )}
             </div>
+            <section
+              className="mt-4 w-full max-w-md shrink-0 border-t border-white/[0.05] pt-4 text-center"
+              aria-label="About this app"
+            >
+              <p className="font-mono text-[10px] tabular-nums tracking-wide text-white/28">
+                Wallpapy v{packageJson.version}
+              </p>
+              <p className="mx-auto mt-2 max-w-[20rem] text-[12px] leading-snug text-white/38">
+                <span className="text-white/58">Ahmed Kamal</span>
+                <span className="text-white/22"> — </span>
+                Follow and contact{" "}
+                <span className="font-mono text-[11px] text-white/45">
+                  @jusstkamal
+                </span>
+              </p>
+              <nav
+                className="mt-3 flex flex-wrap items-center justify-center gap-y-1 text-[11px] text-white/32"
+                aria-label="Social profiles"
+              >
+                {SOCIAL_LINKS.map(({ label, href }, i) => (
+                  <span key={href} className="inline-flex items-center">
+                    {i > 0 ? (
+                      <span
+                        className="mx-2 select-none text-[10px] text-white/12"
+                        aria-hidden
+                      >
+                        ·
+                      </span>
+                    ) : null}
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded px-0.5 transition-colors duration-200 hover:text-white/55 focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-white/25"
+                    >
+                      {label}
+                    </a>
+                  </span>
+                ))}
+              </nav>
+            </section>
           </div>
         </main>
       </div>

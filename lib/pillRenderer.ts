@@ -20,12 +20,16 @@ export interface WallpaperConfig {
   overlapRatio: number;
   pillMainRatio: number;
   pillCrossRatio: number;
-  /** Picked color — used to tint the canvas background */
-  baseColor: string;
+  /** Palette color used to tint the canvas background */
+  tintColor: string;
   /** 0–10 internal; UI shows 0–100% (×10) */
   backgroundTint: number;
   /** -1..1 where negative darkens and positive brightens the background. */
   backgroundBrightness: number;
+  /** Optional uploaded background image (drawn cover-fit before pills) */
+  backgroundImage: HTMLImageElement | null;
+  /** Gaussian blur radius in px applied to background image (0 = sharp) */
+  backgroundBlur: number;
   /**
    * Alternating stagger along the cross axis (fraction of pill thickness).
    * Sign flips direction: positive vs negative reverses which parity goes which way.
@@ -62,9 +66,11 @@ export function renderWallpaper(
     overlapRatio,
     pillMainRatio,
     pillCrossRatio,
-    baseColor,
+    tintColor,
     backgroundTint,
     backgroundBrightness,
+    backgroundImage,
+    backgroundBlur,
     pillStagger,
     liquidGlass,
   } = config;
@@ -74,14 +80,53 @@ export function renderWallpaper(
   // Scale factor so all effects look correct at any resolution
   const scale = Math.min(width, height) / 1080;
 
-  // --- Background (tinted by base color) ---
-  ctx.fillStyle = wallpaperBackgroundFromBase(
-    baseColor,
-    mode,
-    backgroundTint,
-    backgroundBrightness,
-  );
-  ctx.fillRect(0, 0, width, height);
+  // --- Background ---
+  if (backgroundImage) {
+    // Draw uploaded image cover-fit with optional blur.
+    // Use a padded offscreen canvas so the blur doesn't darken edges.
+    const blur = Math.max(0, backgroundBlur);
+    const pad = blur > 0 ? Math.ceil(blur * 3) : 0;
+    const pw = width + pad * 2;
+    const ph = height + pad * 2;
+    const imgScale = Math.max(pw / backgroundImage.naturalWidth, ph / backgroundImage.naturalHeight);
+    const dw = backgroundImage.naturalWidth * imgScale;
+    const dh = backgroundImage.naturalHeight * imgScale;
+    const dx = (pw - dw) / 2;
+    const dy = (ph - dh) / 2;
+    const offscreen = document.createElement("canvas");
+    offscreen.width = pw;
+    offscreen.height = ph;
+    const offCtx = offscreen.getContext("2d")!;
+    if (blur > 0) offCtx.filter = `blur(${blur}px)`;
+    offCtx.drawImage(backgroundImage, dx, dy, dw, dh);
+    offCtx.filter = "none";
+    // Crop center onto main canvas
+    ctx.drawImage(offscreen, pad, pad, width, height, 0, 0, width, height);
+    // Apply tint color overlay
+    if (backgroundTint > 0) {
+      ctx.save();
+      ctx.globalAlpha = (backgroundTint / 10) * 0.75;
+      ctx.fillStyle = tintColor;
+      ctx.fillRect(0, 0, width, height);
+      ctx.restore();
+    }
+    // Apply brightness overlay
+    if (Math.abs(backgroundBrightness) > 1e-6) {
+      ctx.save();
+      ctx.globalAlpha = Math.abs(backgroundBrightness) * 0.5;
+      ctx.fillStyle = backgroundBrightness > 0 ? "#ffffff" : "#000000";
+      ctx.fillRect(0, 0, width, height);
+      ctx.restore();
+    }
+  } else {
+    ctx.fillStyle = wallpaperBackgroundFromBase(
+      tintColor,
+      mode,
+      backgroundTint,
+      backgroundBrightness,
+    );
+    ctx.fillRect(0, 0, width, height);
+  }
 
   // Build pill geometry
   const pills: PillRect[] = [];

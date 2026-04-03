@@ -95,6 +95,30 @@ export interface PillGeometry {
   stackLayerOrder: StackLayerOrder;
 }
 
+export interface ImageBgParams {
+  tintColor: string;
+  /** 0–1: overlay strength (0 = no tint, 1 = fully replace with tint color) */
+  tintAmount: number;
+  /** -1..1 where negative darkens and positive brightens */
+  brightness: number;
+  /** Gaussian blur radius in px (0 = sharp) */
+  blur: number;
+}
+
+function coverFitDrawImage(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  cw: number,
+  ch: number,
+) {
+  const scale = Math.max(cw / img.naturalWidth, ch / img.naturalHeight);
+  const dw = img.naturalWidth * scale;
+  const dh = img.naturalHeight * scale;
+  const dx = (cw - dw) / 2;
+  const dy = (ch - dh) / 2;
+  ctx.drawImage(img, dx, dy, dw, dh);
+}
+
 export class LiquidGlassRenderer {
   private gl: WebGL2RenderingContext;
   private bgPass: RenderPass;
@@ -103,6 +127,11 @@ export class LiquidGlassRenderer {
   private mainPass: RenderPass;
   private w = 0;
   private h = 0;
+  private bgImage: HTMLImageElement | null = null;
+  private bgImageTexture: WebGLTexture | null = null;
+  private bgBlur = 0;
+  /** 1×1 transparent dummy so u_bgTexture is always bound to a valid texture */
+  private dummyTexture: WebGLTexture;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { preserveDrawingBuffer: true });
@@ -110,6 +139,15 @@ export class LiquidGlassRenderer {
     const ext = gl.getExtension("EXT_color_buffer_float");
     if (!ext) throw new Error("EXT_color_buffer_float required");
     this.gl = gl;
+
+    // 1×1 black dummy texture
+    const dummy = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, dummy);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    this.dummyTexture = dummy;
 
     const vert = VERTEX_SRC;
     this.bgPass = new RenderPass(
@@ -145,9 +183,72 @@ export class LiquidGlassRenderer {
     this.bgPass.resize(w, h);
     this.vblurPass.resize(w, h);
     this.hblurPass.resize(w, h);
+    // Recreate bg texture at new size if an image is loaded
+    if (this.bgImage) {
+      if (this.bgImageTexture) {
+        gl.deleteTexture(this.bgImageTexture);
+      }
+      this.bgImageTexture = this.createBgTexture(this.bgImage, this.bgBlur);
+    }
   }
 
-  render(geo: PillGeometry, params: GlassParams, dpr = 1) {
+  private createBgTexture(img: HTMLImageElement, blur: number): WebGLTexture {
+    const gl = this.gl;
+    // Draw on a padded canvas so blur doesn't darken edges, then crop to w×h
+    const pad = blur > 0 ? Math.ceil(blur * 3) : 0;
+    const pw = this.w + pad * 2;
+    const ph = this.h + pad * 2;
+    const padded = document.createElement("canvas");
+    padded.width = pw;
+    padded.height = ph;
+    const pctx = padded.getContext("2d")!;
+    if (blur > 0) pctx.filter = `blur(${blur}px)`;
+    coverFitDrawImage(pctx, img, pw, ph);
+    pctx.filter = "none";
+
+    // Crop center back to w×h
+    const cvs = document.createElement("canvas");
+    cvs.width = this.w;
+    cvs.height = this.h;
+    const ctx = cvs.getContext("2d")!;
+    ctx.drawImage(padded, pad, pad, this.w, this.h, 0, 0, this.w, this.h);
+
+    const tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cvs);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    return tex;
+  }
+
+  setBackgroundImage(img: HTMLImageElement | null) {
+    const gl = this.gl;
+    if (this.bgImageTexture) {
+      gl.deleteTexture(this.bgImageTexture);
+      this.bgImageTexture = null;
+    }
+    this.bgImage = img;
+    if (img && this.w > 0 && this.h > 0) {
+      this.bgImageTexture = this.createBgTexture(img, this.bgBlur);
+    }
+  }
+
+  render(geo: PillGeometry, params: GlassParams, dpr = 1, imageBg?: ImageBgParams) {
+    // Recreate bg texture if blur changed
+    if (this.bgImage && imageBg) {
+      const newBlur = Math.max(0, imageBg.blur ?? 0);
+      if (newBlur !== this.bgBlur) {
+        this.bgBlur = newBlur;
+        if (this.bgImageTexture) this.gl.deleteTexture(this.bgImageTexture);
+        this.bgImageTexture = this.createBgTexture(this.bgImage, this.bgBlur);
+      }
+    }
+
     const gl = this.gl;
     const { w, h } = this;
     const res = [w, h];
@@ -182,10 +283,19 @@ export class LiquidGlassRenderer {
       u_stackStartOnTop: stackStartOnTop,
     };
 
+    const hasImageBg = this.bgImageTexture ? 1 : 0;
+    const bgImgTex = this.bgImageTexture ?? this.dummyTexture;
+    const tintVec = imageBg ? hexToVec3(imageBg.tintColor) : [0, 0, 0];
+
     // Pass 1: background + pills painted flat
     this.bgPass.render({
       ...sharedUniforms,
       u_bgColor: bgVec,
+      u_bgTexture: bgImgTex,
+      u_hasImageBg: hasImageBg,
+      u_imageTintColor: tintVec,
+      u_imageTintAmount: imageBg ? Math.min(1, Math.max(0, imageBg.tintAmount)) : 0,
+      u_imageBrightness: imageBg ? Math.min(1, Math.max(-1, imageBg.brightness)) : 0,
       u_pillColors: colors,
       u_pillOpacity: Math.min(1, Math.max(0, geo.pillOpacity)),
       u_shadowExpand: params.shadowExpand,
@@ -241,6 +351,11 @@ export class LiquidGlassRenderer {
     this.vblurPass.dispose();
     this.hblurPass.dispose();
     this.mainPass.dispose();
+    if (this.bgImageTexture) {
+      this.gl.deleteTexture(this.bgImageTexture);
+      this.bgImageTexture = null;
+    }
+    this.gl.deleteTexture(this.dummyTexture);
   }
 }
 
@@ -257,7 +372,7 @@ export function computePillGeometry(
   pillMainRatio: number,
   pillCrossRatio: number,
   mode: "dark" | "light",
-  baseColor: string,
+  tintColor: string,
   backgroundTint: number,
   backgroundBrightness: number,
   pillStagger: number,
@@ -298,7 +413,7 @@ export function computePillGeometry(
   }
 
   const bgColor = wallpaperBackgroundFromBase(
-    baseColor,
+    tintColor,
     mode,
     backgroundTint,
     backgroundBrightness,
