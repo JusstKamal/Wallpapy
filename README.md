@@ -119,13 +119,11 @@ npm run build
 
 Built with [Tauri v2](https://tauri.app) — native OS webview, no bundled Chromium. The whole app is around **8 MB**.
 
-| Platform                  | Download                          |
-| ------------------------- | --------------------------------- |
-| **macOS** (Apple Silicon) | [Wallpapy_0.1.0_aarch64.dmg](#)   |
-| **macOS** (Intel)         | _coming soon_                     |
-| **Windows**               | [Wallpapy_0.1.0_x64-setup.exe](#) |
-
-> ⚠️ Replace the `#` links with your actual GitHub Releases URLs after publishing.
+| Platform                  | Download                                                                                                                                                                           |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **macOS** (Apple Silicon) | [Wallpapy_0.1.0_aarch64.dmg](https://github.com/JusstKamal/Wallpapy/releases/download/v0.1.0/Wallpapy_0.1.0_aarch64.dmg)                                                         |
+| **macOS** (Intel)         | [Wallpapy_0.1.0_x64.dmg](https://github.com/JusstKamal/Wallpapy/releases/download/v0.1.0/Wallpapy_0.1.0_x64.dmg)                                                                 |
+| **Windows**               | [Wallpapy_0.1.0_x64-setup.exe](https://github.com/JusstKamal/Wallpapy/releases/download/v0.1.0/Wallpapy_0.1.0_x64-setup.exe)                                                     |
 
 **macOS note:** If Gatekeeper blocks it on first launch, right-click the `.app` → Open.
 
