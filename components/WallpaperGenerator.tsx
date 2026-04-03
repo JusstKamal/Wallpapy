@@ -1,7 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { generatePillColors, hexToHsl } from "@/lib/colorUtils";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  generatePillColorsFromPalette,
+  hexToHsl,
+  mixHexHsl,
+} from "@/lib/colorUtils";
 import {
   PRESETS,
   PRESET_DEFAULTS,
@@ -21,7 +31,8 @@ import {
 } from "@/lib/liquidGlassRenderer";
 
 interface Config {
-  baseColor: string;
+  /** One color = single-hue lightness ramp; two+ = gradient between stops along the stack. */
+  paletteColors: string[];
   pillCount: number;
   /** 0–1, fades all pills together */
   pillOpacity: number;
@@ -44,7 +55,7 @@ interface Config {
 }
 
 const DEFAULT: Config = {
-  baseColor: "#6D28D9",
+  paletteColors: ["#6D28D9"],
   mode: "dark",
   direction: "dark-to-light",
   ...PRESET_DEFAULTS,
@@ -64,15 +75,15 @@ function stackDirectionForAspectRatio(
 }
 
 function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia(query);
-    setMatches(mq.matches);
-    const onChange = () => setMatches(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, [query]);
-  return matches;
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      const mq = window.matchMedia(query);
+      mq.addEventListener("change", onStoreChange);
+      return () => mq.removeEventListener("change", onStoreChange);
+    },
+    () => window.matchMedia(query).matches,
+    () => false,
+  );
 }
 
 export default function WallpaperGenerator() {
@@ -92,8 +103,38 @@ export default function WallpaperGenerator() {
   ) =>
     setConfig((prev) => ({ ...prev, glass: { ...prev.glass, [key]: value } }));
 
-  const colors = generatePillColors(
-    config.baseColor,
+  const setPaletteColor = (index: number, hex: string) =>
+    setConfig((prev) => {
+      const next = [...prev.paletteColors];
+      next[index] = hex;
+      return { ...prev, paletteColors: next };
+    });
+
+  const addPaletteStop = () =>
+    setConfig((prev) => {
+      if (prev.paletteColors.length >= 8) return prev;
+      const last = prev.paletteColors[prev.paletteColors.length - 1] ?? "#888888";
+      return {
+        ...prev,
+        paletteColors: [
+          ...prev.paletteColors,
+          mixHexHsl(last, "#ffffff", 0.12),
+        ],
+      };
+    });
+
+  const removePaletteStop = (index: number) =>
+    setConfig((prev) => {
+      if (prev.paletteColors.length <= 1) return prev;
+      return {
+        ...prev,
+        paletteColors: prev.paletteColors.filter((_, i) => i !== index),
+      };
+    });
+
+  const baseColor = config.paletteColors[0] ?? "#6D28D9";
+  const colors = generatePillColorsFromPalette(
+    config.paletteColors,
     config.pillCount,
     config.direction,
     config.mode,
@@ -106,7 +147,7 @@ export default function WallpaperGenerator() {
   );
   const ar = ASPECT_RATIOS[config.arIndex];
 
-  const [h] = hexToHsl(config.baseColor);
+  const [h] = hexToHsl(baseColor);
   const accent = `hsl(${h}, 70%, 65%)`;
   const isPortrait = ar.h > ar.w;
   const isMdUp = useMediaQuery("(min-width: 768px)");
@@ -120,7 +161,7 @@ export default function WallpaperGenerator() {
     config.pillMainRatio,
     config.pillCrossRatio,
     config.mode,
-    config.baseColor,
+    baseColor,
     config.backgroundTint,
   ] as const;
 
@@ -145,7 +186,7 @@ export default function WallpaperGenerator() {
       overlapRatio: config.overlapRatio,
       pillMainRatio: config.pillMainRatio,
       pillCrossRatio: config.pillCrossRatio,
-      baseColor: config.baseColor,
+      baseColor,
       backgroundTint: config.backgroundTint,
       liquidGlass: false,
     });
@@ -226,7 +267,7 @@ export default function WallpaperGenerator() {
         overlapRatio: config.overlapRatio,
         pillMainRatio: config.pillMainRatio,
         pillCrossRatio: config.pillCrossRatio,
-      baseColor: config.baseColor,
+      baseColor,
       backgroundTint: config.backgroundTint,
       liquidGlass: false,
       });
@@ -241,7 +282,10 @@ export default function WallpaperGenerator() {
   const applyPreset = (p: WallpaperPreset) =>
     setConfig((prev) => ({
       ...prev,
-      baseColor: p.color,
+      paletteColors:
+        p.paletteColors && p.paletteColors.length > 0
+          ? p.paletteColors
+          : [p.color],
       mode: p.mode,
       direction: p.direction,
       pillCount: p.pillCount,
@@ -319,8 +363,8 @@ export default function WallpaperGenerator() {
                   }`}
                 >
                   <div className="w-full h-7 rounded-md overflow-hidden flex">
-                    {generatePillColors(
-                      p.color,
+                    {generatePillColorsFromPalette(
+                      p.paletteColors ?? [p.color],
                       5,
                       p.direction,
                       p.mode,
@@ -351,29 +395,60 @@ export default function WallpaperGenerator() {
           </Section>
 
           <Section label="Color">
-            <div className="flex items-center gap-3">
-              <label className="relative w-9 h-9 rounded-lg overflow-hidden border border-white/10 cursor-pointer shrink-0">
-                <input
-                  type="color"
-                  value={config.baseColor}
-                  onChange={(e) => set("baseColor", e.target.value)}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
-                <div
-                  className="w-full h-full"
-                  style={{ background: config.baseColor }}
-                />
-              </label>
-              <input
-                type="text"
-                value={config.baseColor.toUpperCase()}
-                onChange={(e) => {
-                  if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value))
-                    set("baseColor", e.target.value);
-                }}
-                className="flex-1 bg-white/[0.06] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] font-mono uppercase tracking-wider text-white/80 focus:outline-none focus:border-white/20"
-              />
+            <p className="text-[11px] text-white/35 mb-2 leading-snug">
+              One color: lightness ramp. Multiple: gradient from first → last
+              along the pill stack (background tint uses the first stop).
+            </p>
+            <div className="flex flex-col gap-2">
+              {config.paletteColors.map((c, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="w-5 shrink-0 text-[10px] text-white/30 font-mono text-right">
+                    {i + 1}
+                  </span>
+                  <label className="relative w-9 h-9 rounded-lg overflow-hidden border border-white/10 cursor-pointer shrink-0">
+                    <input
+                      type="color"
+                      value={c}
+                      onChange={(e) => setPaletteColor(i, e.target.value)}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    <div
+                      className="w-full h-full"
+                      style={{ background: c }}
+                    />
+                  </label>
+                  <input
+                    type="text"
+                    value={c.toUpperCase()}
+                    onChange={(e) => {
+                      if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value))
+                        setPaletteColor(i, e.target.value);
+                    }}
+                    className="flex-1 min-w-0 bg-white/[0.06] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-[12px] font-mono uppercase tracking-wider text-white/80 focus:outline-none focus:border-white/20"
+                  />
+                  {config.paletteColors.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => removePaletteStop(i)}
+                      className="shrink-0 w-8 h-8 rounded-lg border border-white/[0.08] text-white/40 hover:text-white/70 hover:border-white/15 text-[16px] leading-none flex items-center justify-center"
+                      aria-label={`Remove color ${i + 1}`}
+                    >
+                      ×
+                    </button>
+                  ) : (
+                    <span className="w-8 shrink-0" aria-hidden />
+                  )}
+                </div>
+              ))}
             </div>
+            <button
+              type="button"
+              onClick={addPaletteStop}
+              disabled={config.paletteColors.length >= 8}
+              className="mt-2 w-full py-2 rounded-lg text-[12px] border border-white/[0.08] text-white/45 hover:text-white/70 hover:border-white/15 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+            >
+              Add color stop
+            </button>
             <div
               className="flex mt-3 rounded-lg overflow-hidden border border-white/[0.08]"
               style={{ height: 24, opacity: config.pillOpacity }}

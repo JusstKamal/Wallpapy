@@ -46,7 +46,7 @@ export function hslToHex(h: number, s: number, l: number): string {
 }
 
 /** Linear mix in HSL; hue takes shortest arc. t=0 → `from`, t=1 → `to`. */
-function mixHexHsl(from: string, to: string, t: number): string {
+export function mixHexHsl(from: string, to: string, t: number): string {
   const u = Math.min(1, Math.max(0, t));
   const [h1, s1, l1] = hexToHsl(from);
   const [h2, s2, l2] = hexToHsl(to);
@@ -73,27 +73,86 @@ export function wallpaperBackgroundFromBase(
   tintAmount = 1,
 ): string {
   const [h, s] = hexToHsl(baseHex);
-  const bgL = mode === "dark" ? 5.2 : 94.5;
-  const bgS = mode === "dark" ? Math.min(s * 0.42, 28) : Math.min(s * 0.34, 20);
+  // Dark: chroma on ~5% L reads well. Light: same L as paper + low S looks nearly white —
+  // use slightly lower L for tinted swatches + higher S caps so hue is visible.
+  const neutralL = mode === "dark" ? 5.2 : 94.5;
+  const bgL = mode === "dark" ? 5.2 : 91.5;
+  const bgS =
+    mode === "dark"
+      ? Math.min(s * 0.42, 28)
+      : Math.min(s * 0.52, 34);
   const tinted = hslToHex(h, bgS, bgL);
   const bgSStrong =
-    mode === "dark" ? Math.min(s * 0.88, 58) : Math.min(s * 0.72, 42);
+    mode === "dark"
+      ? Math.min(s * 0.88, 58)
+      : Math.min(s * 0.92, 52);
   const tintedStrong = hslToHex(h, bgSStrong, bgL);
   const bgSMax =
-    mode === "dark" ? Math.min(s * 1.38, 94) : Math.min(s * 1.12, 78);
+    mode === "dark"
+      ? Math.min(s * 1.38, 94)
+      : Math.min(s * 1.28, 82);
   const tintedMax = hslToHex(h, bgSMax, bgL);
   // 600–1000%: extra headroom toward near-full saturation at fixed L
   const bgSExtreme =
-    mode === "dark" ? Math.min(s * 2.05, 100) : Math.min(s * 1.65, 96);
+    mode === "dark"
+      ? Math.min(s * 2.05, 100)
+      : Math.min(s * 1.75, 98);
   const tintedExtreme = hslToHex(h, bgSExtreme, bgL);
 
   const t = Math.min(10, Math.max(0, tintAmount));
-  const neutral = mode === "dark" ? hslToHex(0, 0, 5.2) : hslToHex(0, 0, 94.5);
+  const neutral =
+    mode === "dark" ? hslToHex(0, 0, neutralL) : hslToHex(0, 0, neutralL);
   if (t <= 0) return neutral;
   if (t < 1) return mixHexHsl(neutral, tinted, t);
   if (t < 2) return mixHexHsl(tinted, tintedStrong, t - 1);
   if (t < 5) return mixHexHsl(tintedStrong, tintedMax, (t - 2) / 3);
   return mixHexHsl(tintedMax, tintedExtreme, (t - 5) / 5);
+}
+
+/** Sample along ordered palette stops, t ∈ [0, 1] from first → last stop. */
+export function samplePaletteStops(stops: string[], t: number): string {
+  if (stops.length === 0) return "#000000";
+  if (stops.length === 1) return stops[0];
+  const u = Math.min(1, Math.max(0, t)) * (stops.length - 1);
+  const j = Math.floor(u);
+  const localT = u - j;
+  if (j >= stops.length - 1) return stops[stops.length - 1];
+  return mixHexHsl(stops[j], stops[j + 1], localT);
+}
+
+function applyEndIntensityToRamp(
+  natural: string[],
+  firstPillIntensity: number,
+  lastPillIntensity: number,
+): string[] {
+  const count = natural.length;
+  const a = Math.min(1, Math.max(0.25, firstPillIntensity));
+  const b = Math.min(1, Math.max(0.25, lastPillIntensity));
+
+  if (count <= 1) {
+    return natural;
+  }
+
+  const out = [...natural];
+
+  if (count === 2) {
+    const mid = mixHexHsl(natural[0], natural[1], 0.5);
+    out[0] = mixHexHsl(mid, natural[0], a);
+    out[1] = mixHexHsl(mid, natural[1], b);
+    return out;
+  }
+
+  const centerLo = Math.floor((count - 1) / 2);
+  const centerHi = Math.ceil((count - 1) / 2);
+
+  for (let i = 0; i < centerLo; i++) {
+    out[i] = mixHexHsl(natural[centerLo], natural[i], a);
+  }
+  for (let i = centerHi + 1; i < count; i++) {
+    out[i] = mixHexHsl(natural[centerHi], natural[i], b);
+  }
+
+  return out;
 }
 
 export function generatePillColors(
@@ -124,35 +183,73 @@ export function generatePillColors(
     colors.push(hslToHex(h, Math.min(s * sFactor, 100), l));
   }
 
-  const natural =
+  const ordered =
     direction === "dark-to-light" ? colors : [...colors].reverse();
 
-  const a = Math.min(1, Math.max(0.25, firstPillIntensity));
-  const b = Math.min(1, Math.max(0.25, lastPillIntensity));
+  return applyEndIntensityToRamp(ordered, firstPillIntensity, lastPillIntensity);
+}
 
-  if (count <= 1) {
-    return natural;
+/** Multi-stop hue gradient along the stack; same intensity shaping as single-hue mode. */
+export function generatePillColorsMulti(
+  stops: string[],
+  count: number,
+  direction: "dark-to-light" | "light-to-dark",
+  mode: "dark" | "light",
+  firstPillIntensity: number,
+  lastPillIntensity: number,
+): string[] {
+  const clean = stops.filter(Boolean);
+  if (clean.length < 2) {
+    return generatePillColors(
+      clean[0] ?? "#808080",
+      count,
+      direction,
+      mode,
+      firstPillIntensity,
+      lastPillIntensity,
+    );
   }
 
-  const out = [...natural];
-
-  // Middle pill(s) = "main" anchor color(s) on the ramp (same hue as base).
-  const centerLo = Math.floor((count - 1) / 2);
-  const centerHi = Math.ceil((count - 1) / 2);
-
-  if (count === 2) {
-    const mid = mixHexHsl(natural[0], natural[1], 0.5);
-    out[0] = mixHexHsl(mid, natural[0], a);
-    out[1] = mixHexHsl(mid, natural[1], b);
-    return out;
+  const colors: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const t = count > 1 ? i / (count - 1) : 0;
+    colors.push(samplePaletteStops(clean, t));
   }
 
-  for (let i = 0; i < centerLo; i++) {
-    out[i] = mixHexHsl(natural[centerLo], natural[i], a);
-  }
-  for (let i = centerHi + 1; i < count; i++) {
-    out[i] = mixHexHsl(natural[centerHi], natural[i], b);
-  }
+  const ordered =
+    direction === "dark-to-light" ? colors : [...colors].reverse();
 
-  return out;
+  return applyEndIntensityToRamp(ordered, firstPillIntensity, lastPillIntensity);
+}
+
+/**
+ * Single base color uses lightness ramp; two or more palette stops blend along the stack.
+ */
+export function generatePillColorsFromPalette(
+  palette: string[],
+  count: number,
+  direction: "dark-to-light" | "light-to-dark",
+  mode: "dark" | "light",
+  firstPillIntensity: number,
+  lastPillIntensity: number,
+): string[] {
+  const clean = palette.filter(Boolean);
+  if (clean.length <= 1) {
+    return generatePillColors(
+      clean[0] ?? "#808080",
+      count,
+      direction,
+      mode,
+      firstPillIntensity,
+      lastPillIntensity,
+    );
+  }
+  return generatePillColorsMulti(
+    clean,
+    count,
+    direction,
+    mode,
+    firstPillIntensity,
+    lastPillIntensity,
+  );
 }
