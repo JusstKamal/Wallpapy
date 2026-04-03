@@ -1,36 +1,186 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Wallpapy
 
-## Getting Started
+> _Wallpaper + Pappy. Built the day my son Hamza was born. Love you, buddy. 🍼_
 
-First, run the development server:
+---
+
+## The Story
+
+I built this in a single day — the same day my first child, **Hamza**, came into the world.
+
+Waiting at the hospital with too much adrenaline and not enough sleep, I kept seeing that viral pill-stack wallpaper style everywhere and thought: _someone should make a proper tool for this._ So I did. I named it **Wallpapy** — wallpaper, but make it dad energy.
+
+The whole thing — the renderer, the liquid glass WebGL pipeline, the color extractor, the dual-monitor export, the desktop app — came together in one chaotic, beautiful, sleep-deprived day. [Cursor](https://cursor.sh) and [Claude Code](https://claude.ai/claude-code) did a lot of the heavy lifting. The liquid glass effect was deeply inspired by [iyinchao's liquid-glass-studio](https://github.com/iyinchao/liquid-glass-studio) — could not have figured out the refraction math without that repo.
+
+I just wanted something that made it dead simple to generate that style, tweak every knob, and actually export something usable. Especially for those of us with dual monitors who are tired of stretched wallpapers.
+
+Hope you find it useful. And Hamza — if you ever read this — hi. 👋
+
+---
+
+## Screenshots
+
+![Wallpapy — main interface](./screenshots/screenshot-1.png)
+
+![Wallpapy — color palette and glass controls](./screenshots/screenshot-2.png)
+
+![Wallpapy — color picker from image](./screenshots/screenshot-3.png)
+
+---
+
+## Features
+
+### 🎨 Color & Palette
+
+- Single-color mode — generates a full dark-to-light lightness ramp from one pick
+- Multi-stop gradient palette (up to 8 color stops) blended across the pill stack
+- Drag to reorder stops
+- **Pick colors from a photo** — upload any image, k-means++ auto-places eyedroppers on the dominant colors, then drag each marker to fine-tune the exact pixel you want. Add or remove stops live inside the picker, with a live wallpaper preview right next to the image
+
+### 💎 Liquid Glass
+
+- WebGL-powered physically-based glass effect
+- Snell's law refraction with configurable index and edge thickness
+- Fresnel highlights at pill edges
+- Chromatic aberration (RGB dispersion)
+- Directional glare / caustics with angle, convergence, and intensity controls
+- Soft configurable drop shadow
+- Frosted background blur behind the glass
+
+### 🖼 Background
+
+- Solid tinted background with tint strength and brightness controls
+- Upload a custom background image — cover-fit with independent tint, brightness, and blur sliders
+- Choose which palette color tints the background (doesn't have to be the first stop)
+
+### 🧱 Layout & Pills
+
+- Pill count (3–16), overlap ratio, height, thickness, opacity
+- Horizontal or vertical stack direction — auto-suggested from aspect ratio
+- Stack layer order — choose which end of the stack sits in front
+- Per-pill stagger — alternating wobble along the cross axis
+- First/last pill intensity — blend the ends toward center for softer gradients
+
+### 📐 Aspect Ratio & Quality
+
+- Presets: 16:9 · 16:10 · 4:3 · 21:9 (ultrawide) · 3:2
+- Custom ratio — type any width:height values
+- Export quality: 1080p · 1440p · 4K · 5K
+- Export bit depth: 8-bit · 10-bit · 12-bit (HDR-range simulation)
+
+### 🖥 Dual Monitor
+
+- Preview and export as a single combined canvas or split into two halves
+- Left/Right split for side-by-side monitor setups
+- Top/Bottom split for stacked setups
+- Exports all three files at once: full span + left/top + right/bottom
+
+### ✨ Presets
+
+9 curated starting points across the full vibe range:
+
+| Preset        | Mood                                      |
+| ------------- | ----------------------------------------- |
+| **Midnight**  | Dark purple, heavy overlap, brooding      |
+| **Peony**     | Light rose, soft liquid glass bloom       |
+| **Linen**     | Neutral warm beige, clean and quiet       |
+| **Glacier**   | Light cyan, thick ice slabs, liquid glass |
+| **Ember**     | Dark rust, warm and smouldering           |
+| **Taiga**     | Dark forest green                         |
+| **Kaleido**   | Multi-stop: pink → orange → green → blue  |
+| **Synthwave** | Multi-stop: pink → purple → blue neon     |
+| **Nebula**    | Multi-stop: purple → violet → cyan → rose |
+
+---
+
+## Run It (Web App)
+
+Requires **Node.js 18+**.
 
 ```bash
+git clone https://github.com/YOUR_USERNAME/wallpapy.git
+cd wallpapy
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+To build a static export:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+# static output → /out
+```
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## Download the Desktop App
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Built with [Tauri v2](https://tauri.app) — native OS webview, no bundled Chromium. The whole app is around **8 MB**.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Platform                  | Download                          |
+| ------------------------- | --------------------------------- |
+| **macOS** (Apple Silicon) | [Wallpapy_0.1.0_aarch64.dmg](#)   |
+| **macOS** (Intel)         | _coming soon_                     |
+| **Windows**               | [Wallpapy_0.1.0_x64-setup.exe](#) |
 
-## Deploy on Vercel
+> ⚠️ Replace the `#` links with your actual GitHub Releases URLs after publishing.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+**macOS note:** If Gatekeeper blocks it on first launch, right-click the `.app` → Open.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Windows note:** SmartScreen may warn about an unsigned app — click "More info → Run anyway." Code-signing is on the to-do list.
+
+### Build the desktop app yourself
+
+Requires [Rust](https://rustup.rs) in addition to Node.
+
+```bash
+npm install
+npm run tauri:build
+# .app + .dmg  →  src-tauri/target/release/bundle/macos/
+# .exe installer  →  src-tauri/target/release/bundle/windows/
+
+# Dev mode — native window with hot reload
+npm run tauri:dev
+```
+
+---
+
+## Tech Stack
+
+| Layer            | What                                                               |
+| ---------------- | ------------------------------------------------------------------ |
+| Framework        | Next.js 16 (static export, App Router)                             |
+| UI               | React 19 + TypeScript + Tailwind CSS v4                            |
+| Rendering        | WebGL2 (liquid glass) + Canvas 2D (standard + software glass)      |
+| Glass shader     | Custom 4-pass pipeline: background → v-blur → h-blur → composition |
+| Color extraction | k-means++ in the browser, no server needed                         |
+| Desktop          | Tauri v2 (Rust + OS webview)                                       |
+
+---
+
+## Credits & Thanks
+
+This wouldn't exist without these people and tools:
+
+- **[Cursor](https://cursor.sh)** — the AI editor that made building this in a day actually possible
+- **[Claude Code](https://claude.ai/claude-code)** — reasoned through a lot of the hard rendering and shader work
+- **[liquid-glass-studio](https://github.com/iyinchao/liquid-glass-studio)** by [@iyinchao](https://github.com/iyinchao) — the WebGL refraction pipeline was directly inspired by this project. The Snell's law shader math, the Fresnel pass, the blur architecture — all built on top of ideas from this repo. Genuinely couldn't have shipped the glass effect without it
+- Everyone who made the viral pill wallpaper trend happen in the first place — you made people care about wallpapers again
+
+---
+
+## Ideas Welcome
+
+I built this scratching my own itch and figured others might find it useful too. If you have ideas, open an issue or just send a PR.
+
+---
+
+## License
+
+Custom Non-Commercial License — see [LICENSE](./LICENSE) file.
+
+---
+
+_Made with ☕ and new-dad adrenaline on the best day of my life. — Ahmed_
