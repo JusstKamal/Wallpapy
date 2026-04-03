@@ -20,14 +20,21 @@ import {
 import {
   renderWallpaper,
   ASPECT_RATIOS,
+  ASPECT_CUSTOM_INDEX,
   QUALITY_LEVELS,
   getPixelDimensions,
+  getAspectRatioParts,
+  clampAspectRatioPart,
+  normalizeCustomAspectPair,
+  ASPECT_RATIO_PART_MAX,
+  ASPECT_MAX_SIDE_RATIO,
 } from "@/lib/pillRenderer";
 import {
   LiquidGlassRenderer,
-  GlassParams,
+  type GlassParams,
   GLASS_DEFAULTS,
   computePillGeometry,
+  scaleGlassParamsForExport,
 } from "@/lib/liquidGlassRenderer";
 import {
   canvasToDataURLWithBitDepth,
@@ -51,6 +58,9 @@ interface Config {
   /** 0.25–1 */
   lastPillIntensity: number;
   arIndex: number;
+  /** Ratio parts when `arIndex === ASPECT_CUSTOM_INDEX`. */
+  customAspectW: number;
+  customAspectH: number;
   qualityIndex: number;
   liquidGlass: boolean;
   glass: GlassParams;
@@ -60,6 +70,10 @@ interface Config {
   pillStagger: number;
   /** RGB export quantization (PNG samples stay 8-bit; simulates 10/12-bit precision). */
   exportBitDepth: ExportBitDepth;
+  /** Export & preview as two halves for dual monitors */
+  dualMonitor: boolean;
+  /** How to split: left/right or top/bottom */
+  dualSplit: "left-right" | "top-bottom";
 }
 
 const DEFAULT: Config = {
@@ -69,11 +83,15 @@ const DEFAULT: Config = {
   ...PRESET_DEFAULTS,
   stackDirection: "horizontal",
   arIndex: 0,
+  customAspectW: 16,
+  customAspectH: 9,
   qualityIndex: 1,
   liquidGlass: false,
   glass: { ...GLASS_DEFAULTS },
   pillStagger: 0,
   exportBitDepth: 8,
+  dualMonitor: false,
+  dualSplit: "left-right",
 };
 
 /** Portrait canvas → vertical stack; landscape → horizontal (pills run along the long axis). */
@@ -102,6 +120,8 @@ export default function WallpaperGenerator() {
   const [selectedPresetIndex, setSelectedPresetIndex] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const glCanvasRef = useRef<HTMLCanvasElement>(null);
+  const dualCanvasARef = useRef<HTMLCanvasElement>(null);
+  const dualCanvasBRef = useRef<HTMLCanvasElement>(null);
   const glRendererRef = useRef<LiquidGlassRenderer | null>(null);
 
   const set = <K extends keyof Config>(key: K, value: Config[K]) =>
@@ -151,11 +171,16 @@ export default function WallpaperGenerator() {
     config.firstPillIntensity,
     config.lastPillIntensity,
   );
+  const customAspect = {
+    w: config.customAspectW,
+    h: config.customAspectH,
+  };
   const { width: exportW, height: exportH } = getPixelDimensions(
     config.arIndex,
     config.qualityIndex,
+    customAspect,
   );
-  const ar = ASPECT_RATIOS[config.arIndex];
+  const ar = getAspectRatioParts(config.arIndex, customAspect);
 
   const [h] = hexToHsl(baseColor);
   const accent = `hsl(${h}, 70%, 65%)`;
@@ -175,6 +200,33 @@ export default function WallpaperGenerator() {
     config.backgroundTint,
     config.pillStagger,
   ] as const;
+
+  const syncDualPreview = useCallback(() => {
+    if (!config.dualMonitor) return;
+    const src = config.liquidGlass ? glCanvasRef.current : canvasRef.current;
+    const a = dualCanvasARef.current;
+    const b = dualCanvasBRef.current;
+    if (!src || !a || !b) return;
+    const dpr = window.devicePixelRatio || 1;
+    const ra = a.getBoundingClientRect();
+    const rb = b.getBoundingClientRect();
+    a.width = Math.max(1, Math.round(ra.width * dpr));
+    a.height = Math.max(1, Math.round(ra.height * dpr));
+    b.width = Math.max(1, Math.round(rb.width * dpr));
+    b.height = Math.max(1, Math.round(rb.height * dpr));
+    const ctxA = a.getContext("2d");
+    const ctxB = b.getContext("2d");
+    if (!ctxA || !ctxB) return;
+    const W = src.width;
+    const H = src.height;
+    if (config.dualSplit === "left-right") {
+      ctxA.drawImage(src, 0, 0, W / 2, H, 0, 0, a.width, a.height);
+      ctxB.drawImage(src, W / 2, 0, W / 2, H, 0, 0, b.width, b.height);
+    } else {
+      ctxA.drawImage(src, 0, 0, W, H / 2, 0, 0, a.width, a.height);
+      ctxB.drawImage(src, 0, H / 2, W, H / 2, 0, 0, b.width, b.height);
+    }
+  }, [config.dualMonitor, config.dualSplit, config.liquidGlass]);
 
   // ── Canvas2D preview (non-glass) ──────────────────────────────
   useEffect(() => {
@@ -202,8 +254,9 @@ export default function WallpaperGenerator() {
       pillStagger: config.pillStagger,
       liquidGlass: false,
     });
+    requestAnimationFrame(() => syncDualPreview());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config]);
+  }, [config, syncDualPreview]);
 
   // ── WebGL liquid glass preview ────────────────────────────────
   useEffect(() => {
@@ -234,8 +287,9 @@ export default function WallpaperGenerator() {
 
     const geo = computePillGeometry(cw, ch, ...pillGeoArgs);
     glRendererRef.current.render(geo, config.glass, dpr);
+    requestAnimationFrame(() => syncDualPreview());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config]);
+  }, [config, syncDualPreview]);
 
   // Dispose WebGL renderer when switching off
   useEffect(() => {
@@ -245,21 +299,100 @@ export default function WallpaperGenerator() {
     }
   }, [config.liquidGlass]);
 
+  // Re-sync split preview after dual canvases mount or split mode changes
+  useEffect(() => {
+    if (!config.dualMonitor) return;
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => syncDualPreview());
+    });
+    return () => cancelAnimationFrame(id);
+  }, [config.dualMonitor, config.dualSplit, syncDualPreview]);
+
   const download = useCallback(() => {
+    const bd = config.exportBitDepth;
+    const bitSuffix = bd === 8 ? "" : `-${bd}bit`;
+
+    /** Same user gesture must trigger multiple downloads — no async delay. */
+    const triggerDownload = (filename: string, dataUrl: string) => {
+      const a = document.createElement("a");
+      a.download = filename;
+      a.href = dataUrl;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+
+    const exportFromFullCanvas = (full: HTMLCanvasElement) => {
+      const base = config.liquidGlass ? "wallpapy-glass" : "wallpapy";
+      const fullUrl = canvasToDataURLWithBitDepth(full, bd);
+
+      if (!config.dualMonitor) {
+        triggerDownload(`${base}-${exportW}x${exportH}${bitSuffix}.png`, fullUrl);
+        return;
+      }
+
+      /** Combined span + per-display files (same click gesture). */
+      triggerDownload(`${base}-${exportW}x${exportH}-Full${bitSuffix}.png`, fullUrl);
+
+      if (config.dualSplit === "left-right") {
+        const wL = Math.floor(exportW / 2);
+        const wR = exportW - wL;
+        const cL = document.createElement("canvas");
+        const cR = document.createElement("canvas");
+        cL.width = wL;
+        cL.height = exportH;
+        cR.width = wR;
+        cR.height = exportH;
+        const gL = cL.getContext("2d");
+        const gR = cR.getContext("2d");
+        if (!gL || !gR) return;
+        gL.drawImage(full, 0, 0, wL, exportH, 0, 0, wL, exportH);
+        gR.drawImage(full, wL, 0, wR, exportH, 0, 0, wR, exportH);
+        const urlL = canvasToDataURLWithBitDepth(cL, bd);
+        const urlR = canvasToDataURLWithBitDepth(cR, bd);
+        triggerDownload(`${base}-${wL}x${exportH}-Left${bitSuffix}.png`, urlL);
+        triggerDownload(`${base}-${wR}x${exportH}-Right${bitSuffix}.png`, urlR);
+      } else {
+        const hT = Math.floor(exportH / 2);
+        const hB = exportH - hT;
+        const cT = document.createElement("canvas");
+        const cB = document.createElement("canvas");
+        cT.width = exportW;
+        cT.height = hT;
+        cB.width = exportW;
+        cB.height = hB;
+        const gT = cT.getContext("2d");
+        const gB = cB.getContext("2d");
+        if (!gT || !gB) return;
+        gT.drawImage(full, 0, 0, exportW, hT, 0, 0, exportW, hT);
+        gB.drawImage(full, 0, hT, exportW, hB, 0, 0, exportW, hB);
+        const urlT = canvasToDataURLWithBitDepth(cT, bd);
+        const urlB = canvasToDataURLWithBitDepth(cB, bd);
+        triggerDownload(`${base}-${exportW}x${hT}-Top${bitSuffix}.png`, urlT);
+        triggerDownload(`${base}-${exportW}x${hB}-Bottom${bitSuffix}.png`, urlB);
+      }
+    };
+
     if (config.liquidGlass) {
       const offscreen = document.createElement("canvas");
       offscreen.width = exportW;
       offscreen.height = exportH;
       let renderer: LiquidGlassRenderer | null = null;
       try {
+        const previewBufW =
+          glCanvasRef.current?.width && glCanvasRef.current.width > 0
+            ? glCanvasRef.current.width
+            : exportW;
+        const glassForExport = scaleGlassParamsForExport(
+          config.glass,
+          previewBufW,
+          exportW,
+        );
         renderer = new LiquidGlassRenderer(offscreen);
         const geo = computePillGeometry(exportW, exportH, ...pillGeoArgs);
-        renderer.render(geo, config.glass, 1);
-        const link = document.createElement("a");
-        const bd = config.exportBitDepth;
-        link.download = `wallpapy-glass-${exportW}x${exportH}${bd === 8 ? "" : `-${bd}bit`}.png`;
-        link.href = canvasToDataURLWithBitDepth(offscreen, bd);
-        link.click();
+        renderer.render(geo, glassForExport, 1);
+        exportFromFullCanvas(offscreen);
       } catch (e) {
         console.error("Export failed:", e);
       } finally {
@@ -280,16 +413,12 @@ export default function WallpaperGenerator() {
         overlapRatio: config.overlapRatio,
         pillMainRatio: config.pillMainRatio,
         pillCrossRatio: config.pillCrossRatio,
-      baseColor,
-      backgroundTint: config.backgroundTint,
-      pillStagger: config.pillStagger,
-      liquidGlass: false,
+        baseColor,
+        backgroundTint: config.backgroundTint,
+        pillStagger: config.pillStagger,
+        liquidGlass: false,
       });
-      const link = document.createElement("a");
-      const bd = config.exportBitDepth;
-      link.download = `wallpapy-${exportW}x${exportH}${bd === 8 ? "" : `-${bd}bit`}.png`;
-      link.href = canvasToDataURLWithBitDepth(offscreen, bd);
-      link.click();
+      exportFromFullCanvas(offscreen);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config, exportW, exportH]);
@@ -353,7 +482,13 @@ export default function WallpaperGenerator() {
           style={{ background: accent, color: "#0d0d0d" }}
         >
           <DownloadIcon />
-          <span className="hidden sm:inline">Export {exportW} × {exportH}</span>
+          <span className="hidden sm:inline">
+            {config.dualMonitor
+              ? config.dualSplit === "left-right"
+                ? `Export 3 — ${exportW}×${exportH} full + ${Math.floor(exportW / 2)}×${exportH} + ${exportW - Math.floor(exportW / 2)}×${exportH}`
+                : `Export 3 — ${exportW}×${exportH} full + ${exportW}×${Math.floor(exportH / 2)} + ${exportW}×${exportH - Math.floor(exportH / 2)}`
+              : `Export ${exportW} × ${exportH}`}
+          </span>
           <span className="sm:hidden">Export</span>
         </button>
       </header>
@@ -877,31 +1012,122 @@ export default function WallpaperGenerator() {
 
           <Section label="Aspect Ratio">
             <div className="-mx-4 overflow-x-auto px-4 pb-0.5 md:mx-0 md:overflow-visible md:px-0">
-              <div className="grid min-w-[300px] grid-cols-5 gap-1.5 sm:min-w-0">
-              {ASPECT_RATIOS.map((a, i) => (
+              <div className="grid min-w-0 grid-cols-3 gap-1.5">
+                {ASPECT_RATIOS.map((a, i) => (
+                  <button
+                    type="button"
+                    key={a.label}
+                    onClick={() =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        arIndex: i,
+                        stackDirection: stackDirectionForAspectRatio(a.w, a.h),
+                      }))
+                    }
+                    className={`flex flex-col items-center gap-1.5 py-2 px-1 rounded-lg border transition-colors ${config.arIndex === i ? "border-white/20 bg-white/[0.08] text-white" : "border-white/[0.06] text-white/30 hover:text-white/50"}`}
+                  >
+                    <ARThumb
+                      w={a.w}
+                      h={a.h}
+                      active={config.arIndex === i}
+                      accent={accent}
+                    />
+                    <span className="text-[10px] font-mono leading-none">
+                      {a.label}
+                    </span>
+                  </button>
+                ))}
                 <button
-                  key={a.label}
+                  type="button"
                   onClick={() =>
                     setConfig((prev) => ({
                       ...prev,
-                      arIndex: i,
-                      stackDirection: stackDirectionForAspectRatio(a.w, a.h),
+                      arIndex: ASPECT_CUSTOM_INDEX,
+                      stackDirection: stackDirectionForAspectRatio(
+                        prev.customAspectW,
+                        prev.customAspectH,
+                      ),
                     }))
                   }
-                  className={`flex flex-col items-center gap-1.5 py-2 px-1 rounded-lg border transition-colors ${config.arIndex === i ? "border-white/20 bg-white/[0.08] text-white" : "border-white/[0.06] text-white/30 hover:text-white/50"}`}
+                  className={`flex flex-col items-center gap-1.5 py-2 px-1 rounded-lg border transition-colors ${config.arIndex === ASPECT_CUSTOM_INDEX ? "border-white/20 bg-white/[0.08] text-white" : "border-white/[0.06] text-white/30 hover:text-white/50"}`}
                 >
                   <ARThumb
-                    w={a.w}
-                    h={a.h}
-                    active={config.arIndex === i}
+                    w={config.customAspectW}
+                    h={config.customAspectH}
+                    active={config.arIndex === ASPECT_CUSTOM_INDEX}
                     accent={accent}
                   />
                   <span className="text-[10px] font-mono leading-none">
-                    {a.label}
+                    Custom
                   </span>
                 </button>
-              ))}
               </div>
+              {config.arIndex === ASPECT_CUSTOM_INDEX && (
+                <>
+                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2">
+                  <span className="text-[11px] text-white/35 shrink-0">W : H</span>
+                  <input
+                    type="number"
+                    min={0.01}
+                    max={ASPECT_RATIO_PART_MAX}
+                    step="any"
+                    aria-label="Custom aspect width"
+                    value={config.customAspectW}
+                    onChange={(e) => {
+                      const n = parseFloat(e.target.value);
+                      if (!Number.isFinite(n)) return;
+                      setConfig((prev) => {
+                        const w = clampAspectRatioPart(n);
+                        const { w: nw, h: nh } = normalizeCustomAspectPair(
+                          w,
+                          prev.customAspectH,
+                        );
+                        return {
+                          ...prev,
+                          customAspectW: nw,
+                          customAspectH: nh,
+                          stackDirection:
+                            stackDirectionForAspectRatio(nw, nh),
+                        };
+                      });
+                    }}
+                    className="min-w-[4.5rem] flex-1 rounded-md border border-white/[0.1] bg-black/30 px-2 py-1.5 text-[12px] font-mono text-white/90 focus:border-white/25 focus:outline-none"
+                  />
+                  <span className="text-white/25 font-mono">:</span>
+                  <input
+                    type="number"
+                    min={0.01}
+                    max={ASPECT_RATIO_PART_MAX}
+                    step="any"
+                    aria-label="Custom aspect height"
+                    value={config.customAspectH}
+                    onChange={(e) => {
+                      const n = parseFloat(e.target.value);
+                      if (!Number.isFinite(n)) return;
+                      setConfig((prev) => {
+                        const h = clampAspectRatioPart(n);
+                        const { w: nw, h: nh } = normalizeCustomAspectPair(
+                          prev.customAspectW,
+                          h,
+                        );
+                        return {
+                          ...prev,
+                          customAspectW: nw,
+                          customAspectH: nh,
+                          stackDirection:
+                            stackDirectionForAspectRatio(nw, nh),
+                        };
+                      });
+                    }}
+                    className="min-w-[4.5rem] flex-1 rounded-md border border-white/[0.1] bg-black/30 px-2 py-1.5 text-[12px] font-mono text-white/90 focus:border-white/25 focus:outline-none"
+                  />
+                </div>
+                <p className="mt-2 text-[11px] text-white/25 leading-snug">
+                  Longer side at most {ASPECT_MAX_SIDE_RATIO}× the shorter (each
+                  value 0.01–{ASPECT_RATIO_PART_MAX}).
+                </p>
+                </>
+              )}
             </div>
           </Section>
 
@@ -919,6 +1145,55 @@ export default function WallpaperGenerator() {
             </div>
             <p className="text-[11px] text-white/20 mt-2 text-center font-mono">
               {exportW} × {exportH}px
+            </p>
+          </Section>
+
+          <Section label="Dual monitor">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[12px] text-white/45">Split preview & export</span>
+              <button
+                type="button"
+                onClick={() => set("dualMonitor", !config.dualMonitor)}
+                className="relative w-9 h-5 rounded-full transition-all duration-150"
+                style={{
+                  background: config.dualMonitor
+                    ? accent
+                    : "rgba(255,255,255,0.1)",
+                }}
+              >
+                <div
+                  className="absolute top-0.5 w-4 h-4 rounded-full transition-all duration-150"
+                  style={{
+                    left: config.dualMonitor
+                      ? "calc(100% - 18px)"
+                      : "2px",
+                    background: config.dualMonitor
+                      ? "#0d0d0d"
+                      : "rgba(255,255,255,0.4)",
+                  }}
+                />
+              </button>
+            </div>
+            {config.dualMonitor && (
+              <Seg
+                options={
+                  [
+                    ["left-right", "Left / Right"],
+                    ["top-bottom", "Top / Bottom"],
+                  ] as const
+                }
+                value={config.dualSplit}
+                onChange={(v) =>
+                  set("dualSplit", v as "left-right" | "top-bottom")
+                }
+              />
+            )}
+            <p className="text-[11px] text-white/20 mt-2">
+              {config.dualMonitor
+                ? config.dualSplit === "left-right"
+                  ? "Preview shows two halves side by side. Export downloads Full (combined), Left, and Right PNGs."
+                  : "Preview shows two halves stacked. Export downloads Full (combined), Top, and Bottom PNGs."
+                : "Off: single full wallpaper. On: combined span plus one file per display."}
             </p>
           </Section>
 
@@ -976,21 +1251,51 @@ export default function WallpaperGenerator() {
         <main className="order-1 flex min-h-0 min-w-0 shrink-0 flex-col items-center justify-center overflow-hidden bg-[#0a0a0a] px-4 py-4 sm:p-6 md:order-2 md:max-h-none md:flex-1 md:shrink md:px-8 md:py-8 max-h-[min(52vh,560px)] md:max-h-none">
           <div className="flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-center gap-2 sm:gap-3">
             <div
-              className="box-border w-full max-w-full overflow-hidden rounded-xl border-2 border-white/[0.24] shadow-2xl shadow-black/50"
+              className="relative box-border w-full max-w-full overflow-hidden rounded-xl border-2 border-white/[0.24] shadow-2xl shadow-black/50"
               style={previewFrameStyle}
             >
-              {/* Canvas2D */}
+              {/* Canvas2D — full frame; hidden visually when dual (still rendered for split source) */}
               <canvas
                 ref={canvasRef}
-                className="block h-full w-full"
+                className={
+                  config.dualMonitor
+                    ? "absolute inset-0 block h-full w-full opacity-0 pointer-events-none"
+                    : "block h-full w-full"
+                }
                 style={{ display: config.liquidGlass ? "none" : "block" }}
               />
               {/* WebGL */}
               <canvas
                 ref={glCanvasRef}
-                className="block h-full w-full"
+                className={
+                  config.dualMonitor
+                    ? "absolute inset-0 block h-full w-full opacity-0 pointer-events-none"
+                    : "block h-full w-full"
+                }
                 style={{ display: config.liquidGlass ? "block" : "none" }}
               />
+              {config.dualMonitor && (
+                <div
+                  className={`absolute inset-0 flex min-h-0 min-w-0 bg-[#0a0a0a] p-2 sm:p-2.5 ${
+                    config.dualSplit === "left-right"
+                      ? "flex-row gap-2 sm:gap-3"
+                      : "flex-col gap-2 sm:gap-3"
+                  }`}
+                >
+                  <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg sm:rounded-xl">
+                    <canvas
+                      ref={dualCanvasARef}
+                      className="absolute inset-0 block h-full w-full"
+                    />
+                  </div>
+                  <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg sm:rounded-xl">
+                    <canvas
+                      ref={dualCanvasBRef}
+                      className="absolute inset-0 block h-full w-full"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1 px-1">
               <span className="text-[11px] text-white/20 font-mono">
@@ -1009,6 +1314,17 @@ export default function WallpaperGenerator() {
                   <span className="text-white/10">·</span>
                   <span className="text-[11px]" style={{ color: accent }}>
                     Liquid Glass
+                  </span>
+                </>
+              )}
+              {config.dualMonitor && (
+                <>
+                  <span className="text-white/10">·</span>
+                  <span className="text-[11px] text-white/35">
+                    Dual{" "}
+                    {config.dualSplit === "left-right"
+                      ? "Left / Right"
+                      : "Top / Bottom"}
                   </span>
                 </>
               )}
@@ -1125,10 +1441,18 @@ function ARThumb({
   let tw: number, th: number;
   if (ratio >= 1) {
     tw = maxW;
-    th = Math.max(Math.round(maxW / ratio), 4);
+    th = Math.round((maxW * h) / w);
+    if (th > maxH) {
+      th = maxH;
+      tw = Math.max(Math.round((maxH * w) / h), 4);
+    }
   } else {
     th = maxH;
-    tw = Math.max(Math.round(maxH * ratio), 4);
+    tw = Math.round((maxH * w) / h);
+    if (tw > maxW) {
+      tw = maxW;
+      th = Math.max(Math.round((maxW * h) / w), 4);
+    }
   }
   return (
     <div

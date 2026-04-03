@@ -23,6 +23,31 @@ export interface GlassParams {
   shadowY: number;
 }
 
+/**
+ * Scale pixel-based glass params so export at `exportW` matches on-screen preview
+ * (preview is rendered at `previewBufferW` physical pixels — blur/thickness are in px).
+ */
+export function scaleGlassParamsForExport(
+  params: GlassParams,
+  previewBufferW: number,
+  exportW: number,
+): GlassParams {
+  const pw = Math.max(1, previewBufferW);
+  const s = exportW / pw;
+  if (Math.abs(s - 1) < 1e-6) return params;
+  return {
+    ...params,
+    refThickness: params.refThickness * s,
+    refDispersion: params.refDispersion * s,
+    blurRadius: Math.max(1, Math.round(params.blurRadius * s)),
+    refFresnelRange: params.refFresnelRange * s,
+    glareRange: params.glareRange * s,
+    shadowExpand: params.shadowExpand * s,
+    shadowX: params.shadowX * s,
+    shadowY: params.shadowY * s,
+  };
+}
+
 export const GLASS_DEFAULTS: GlassParams = {
   refThickness: 20,
   refFactor: 1.4,

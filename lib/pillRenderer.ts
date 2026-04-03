@@ -264,9 +264,71 @@ export const ASPECT_RATIOS = [
   { label: '16:9',  w: 16, h: 9,    tag: 'Landscape' },
   { label: '21:9',  w: 21, h: 9,    tag: 'Ultrawide' },
   { label: '32:9',  w: 32, h: 9,    tag: 'Super UW'  },
+  { label: '1:1',   w: 1,  h: 1,    tag: 'Square'    },
   { label: '9:16',  w: 9,  h: 16,   tag: 'Portrait'  },
   { label: '9:19.5',w: 9,  h: 19.5, tag: 'Mobile'    },
 ];
+
+/** Index into aspect UI: presets are 0…length−1; this selects user W:H ratio. */
+export const ASPECT_CUSTOM_INDEX = ASPECT_RATIOS.length;
+
+const ASPECT_MIN = 0.01;
+
+/** Max allowed value for each custom W or H ratio part (matches number input max). */
+export const ASPECT_RATIO_PART_MAX = 10_240;
+
+/**
+ * Max ratio of longer ÷ shorter side for custom W:H. Rejects extremes like 10240:1
+ * while still allowing very wide layouts (e.g. up to 32∶1).
+ */
+export const ASPECT_MAX_SIDE_RATIO = 32;
+
+/** Clamp a single W or H ratio part for custom aspect (used by UI + export). */
+export function clampAspectRatioPart(n: number): number {
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(ASPECT_RATIO_PART_MAX, Math.max(ASPECT_MIN, n));
+}
+
+/**
+ * Clamp each part, then enforce max(longer, shorter) / min ≤ ASPECT_MAX_SIDE_RATIO
+ * by growing the shorter side (preserves the longer side when possible).
+ */
+export function normalizeCustomAspectPair(w: number, h: number): {
+  w: number;
+  h: number;
+} {
+  w = clampAspectRatioPart(w);
+  h = clampAspectRatioPart(h);
+  const maxDim = Math.max(w, h);
+  const minDim = Math.min(w, h);
+  if (minDim <= 0) return { w: 16, h: 9 };
+  if (maxDim / minDim <= ASPECT_MAX_SIDE_RATIO) return { w, h };
+
+  if (w >= h) {
+    h = clampAspectRatioPart(w / ASPECT_MAX_SIDE_RATIO);
+    if (w / h > ASPECT_MAX_SIDE_RATIO) {
+      w = clampAspectRatioPart(h * ASPECT_MAX_SIDE_RATIO);
+    }
+  } else {
+    w = clampAspectRatioPart(h / ASPECT_MAX_SIDE_RATIO);
+    if (h / w > ASPECT_MAX_SIDE_RATIO) {
+      h = clampAspectRatioPart(w * ASPECT_MAX_SIDE_RATIO);
+    }
+  }
+  return { w, h };
+}
+
+/** Resolved width/height ratio parts for preview, export, and stack direction. */
+export function getAspectRatioParts(
+  arIndex: number,
+  custom: { w: number; h: number } | undefined,
+): { w: number; h: number } {
+  if (arIndex === ASPECT_CUSTOM_INDEX) {
+    return normalizeCustomAspectPair(custom?.w ?? 16, custom?.h ?? 9);
+  }
+  const i = Math.max(0, Math.min(arIndex, ASPECT_RATIOS.length - 1));
+  return { w: ASPECT_RATIOS[i].w, h: ASPECT_RATIOS[i].h };
+}
 
 export const QUALITY_LEVELS = [
   { label: '1080p', base: 1080 },
@@ -275,8 +337,12 @@ export const QUALITY_LEVELS = [
   { label: '5K',    base: 2880 },
 ];
 
-export function getPixelDimensions(arIndex: number, qualityIndex: number) {
-  const ar = ASPECT_RATIOS[arIndex];
+export function getPixelDimensions(
+  arIndex: number,
+  qualityIndex: number,
+  custom?: { w: number; h: number },
+) {
+  const ar = getAspectRatioParts(arIndex, custom);
   const base = QUALITY_LEVELS[qualityIndex].base;
   const isPortrait = ar.h > ar.w;
   if (isPortrait) {
