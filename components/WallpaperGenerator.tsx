@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -131,6 +132,33 @@ function stackDirectionForAspectRatio(
   return h > w ? "vertical" : "horizontal";
 }
 
+/** Largest axis-aligned rect with aspect arW:arH inside maxW×maxH (preview slot). */
+function fitAspectInsideBox(
+  maxW: number,
+  maxH: number,
+  arW: number,
+  arH: number,
+): { w: number; h: number } {
+  if (maxW <= 0 || maxH <= 0 || arW <= 0 || arH <= 0) return { w: 0, h: 0 };
+  let w = maxW;
+  let h = (w * arH) / arW;
+  if (h > maxH) {
+    h = maxH;
+    w = (h * arW) / arH;
+  }
+  w = Math.floor(w);
+  h = Math.round((w * arH) / arW);
+  if (h > maxH) {
+    h = Math.floor(maxH);
+    w = Math.round((h * arW) / arH);
+  }
+  return { w: Math.max(1, w), h: Math.max(1, h) };
+}
+
+/** `border-2` on preview frame: 2px each side → shrink available area for aspect math. */
+const PREVIEW_FRAME_BORDER_GAP_X = 4;
+const PREVIEW_FRAME_BORDER_GAP_Y = 4;
+
 function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
     (onStoreChange) => {
@@ -154,6 +182,8 @@ export default function WallpaperGenerator() {
   const dualCanvasARef = useRef<HTMLCanvasElement>(null);
   const dualCanvasBRef = useRef<HTMLCanvasElement>(null);
   const glRendererRef = useRef<LiquidGlassRenderer | null>(null);
+  const previewSlotRef = useRef<HTMLDivElement>(null);
+  const [previewFramePx, setPreviewFramePx] = useState({ w: 0, h: 0 });
 
   const set = <K extends keyof Config>(key: K, value: Config[K]) =>
     setConfig((prev) => ({ ...prev, [key]: value }));
@@ -456,6 +486,29 @@ export default function WallpaperGenerator() {
     }
   }, [config.dualMonitor, config.dualSplit, config.liquidGlass]);
 
+  // Preview frame: explicit pixel size from slot so flex/CSS never distorts aspect (canvas uses clientWidth/Height).
+  useLayoutEffect(() => {
+    const el = previewSlotRef.current;
+    if (!el) return;
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      const availW = rect.width - PREVIEW_FRAME_BORDER_GAP_X;
+      const availH = rect.height - PREVIEW_FRAME_BORDER_GAP_Y;
+      if (availW < 8 || availH < 8) return;
+      const inner = fitAspectInsideBox(availW, availH, ar.w, ar.h);
+      if (inner.w < 1 || inner.h < 1) return;
+      const w = inner.w + PREVIEW_FRAME_BORDER_GAP_X;
+      const h = inner.h + PREVIEW_FRAME_BORDER_GAP_Y;
+      setPreviewFramePx((prev) =>
+        prev.w === w && prev.h === h ? prev : { w, h },
+      );
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  }, [ar.w, ar.h]);
+
   // ── Canvas2D preview (non-glass) ──────────────────────────────
   useEffect(() => {
     if (config.liquidGlass) return;
@@ -463,6 +516,7 @@ export default function WallpaperGenerator() {
     if (!canvas) return;
     const cw = canvas.clientWidth,
       ch = canvas.clientHeight;
+    if (cw < 2 || ch < 2) return;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(cw * dpr);
     canvas.height = Math.round(ch * dpr);
@@ -488,13 +542,14 @@ export default function WallpaperGenerator() {
     });
     requestAnimationFrame(() => syncDualPreview());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, bgImageElement, syncDualPreview]);
+  }, [config, bgImageElement, syncDualPreview, previewFramePx.w, previewFramePx.h]);
 
   // ── WebGL liquid glass preview ────────────────────────────────
   useEffect(() => {
     if (!config.liquidGlass) return;
     const canvas = glCanvasRef.current;
     if (!canvas) return;
+    if (canvas.clientWidth < 2 || canvas.clientHeight < 2) return;
     const dpr = window.devicePixelRatio || 1;
     const cw = Math.round(canvas.clientWidth * dpr);
     const ch = Math.round(canvas.clientHeight * dpr);
@@ -533,7 +588,7 @@ export default function WallpaperGenerator() {
     glRendererRef.current.render(geo, glassForPreview, dpr, imageBg);
     requestAnimationFrame(() => syncDualPreview());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, bgImageElement, syncDualPreview]);
+  }, [config, bgImageElement, syncDualPreview, previewFramePx.w, previewFramePx.h]);
 
   // Dispose WebGL renderer when switching off
   useEffect(() => {
@@ -721,20 +776,6 @@ export default function WallpaperGenerator() {
       backgroundTint: p.backgroundTint,
       backgroundBrightness: p.backgroundBrightness,
     }));
-
-  // Preview frame: desktop uses side-by-side layout; mobile stacks controls below — different vertical budget.
-  const previewSlot = isMdUp ? "(100dvh - 9rem)" : "(100dvh - 14rem)";
-  const previewFrameStyle: React.CSSProperties = {
-    aspectRatio: `${ar.w} / ${ar.h}`,
-    maxHeight: `calc(${previewSlot})`,
-    maxWidth: isPortrait ? (isMdUp ? "min(50%, 100%)" : "100%") : "100%",
-    width: isPortrait
-      ? isMdUp
-        ? `min(min(50%, 100%), calc(${previewSlot} * ${ar.w / ar.h}))`
-        : `min(100%, calc(${previewSlot} * ${ar.w / ar.h}))`
-      : `min(100%, calc(${previewSlot} * ${ar.w / ar.h}))`,
-    height: "auto",
-  };
 
   return (
     <div className="fixed inset-0 z-0 flex min-h-dvh flex-col overflow-hidden bg-[#0d0d0d] text-white">
@@ -1800,13 +1841,22 @@ export default function WallpaperGenerator() {
           </div>
         </aside>
 
-        {/* Preview — top on mobile, right on desktop */}
-        <main className="order-1 flex min-h-0 min-w-0 shrink-0 flex-col items-center justify-center overflow-hidden bg-[#0a0a0a] px-4 py-4 sm:p-6 md:order-2 md:max-h-none md:flex-1 md:shrink md:px-8 md:py-8 max-h-[min(52vh,560px)] md:max-h-none">
-          <div className="flex min-h-0 w-full max-w-full flex-1 flex-col items-center justify-center gap-2 sm:gap-3">
+        {/* Preview — top on mobile, right on desktop; fixed-height column on small screens so chrome + wallpaper share one slot */}
+        <main className="order-1 flex h-[min(52vh,560px)] max-h-[min(52vh,560px)] min-h-0 min-w-0 shrink-0 flex-col items-center overflow-hidden bg-[#0a0a0a] px-4 py-4 sm:p-6 md:order-2 md:h-auto md:max-h-none md:flex-1 md:shrink md:px-8 md:py-8">
+          <div className="flex h-full min-h-0 w-full max-w-full flex-col items-center gap-2 sm:gap-3">
             <div
-              className="relative box-border w-full max-w-full overflow-hidden rounded-xl border-2 border-white/[0.24] shadow-2xl shadow-black/50"
-              style={previewFrameStyle}
+              ref={previewSlotRef}
+              className={`flex min-h-0 w-full min-w-0 flex-1 items-center justify-center ${
+                isMdUp && isPortrait ? "md:mx-auto md:max-w-[50%]" : ""
+              }`}
             >
+              <div
+                className="relative box-border shrink-0 overflow-hidden rounded-xl border-2 border-white/[0.24] shadow-2xl shadow-black/50"
+                style={{
+                  width: previewFramePx.w > 0 ? previewFramePx.w : undefined,
+                  height: previewFramePx.h > 0 ? previewFramePx.h : undefined,
+                }}
+              >
               {/* Canvas2D — full frame; hidden visually when dual (still rendered for split source) */}
               <canvas
                 ref={canvasRef}
@@ -1849,8 +1899,9 @@ export default function WallpaperGenerator() {
                   </div>
                 </div>
               )}
+              </div>
             </div>
-            <div className="flex max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1 px-1">
+            <div className="flex max-w-full shrink-0 flex-wrap items-center justify-center gap-x-2 gap-y-1 px-1">
               <span className="text-[11px] text-white/20 font-mono">
                 {exportW} × {exportH}
               </span>
