@@ -2,5 +2,5 @@
 2:I[57712,["/Wallpapy/_next/static/chunks/0dbhjjzl8qfwv.js","/Wallpapy/_next/static/chunks/08zur3a.k957l.js"],"default"]
 3:I[97367,["/Wallpapy/_next/static/chunks/0dbhjjzl8qfwv.js"],"OutletBoundary"]
 4:"$Sreact.suspense"
-0:{"rsc":["$","$1","c",{"children":[["$","$L2",null,{}],[["$","script","script-0",{"src":"/Wallpapy/_next/static/chunks/08zur3a.k957l.js","async":true}]],["$","$L3",null,{"children":["$","$4",null,{"name":"Next.MetadataOutlet","children":"$@5"}]}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"7ut8fdW_8pIu3cccMpWau"}
+0:{"rsc":["$","$1","c",{"children":[["$","$L2",null,{}],[["$","script","script-0",{"src":"/Wallpapy/_next/static/chunks/08zur3a.k957l.js","async":true}]],["$","$L3",null,{"children":["$","$4",null,{"name":"Next.MetadataOutlet","children":"$@5"}]}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"GiXD-ivXEK5iKoIf9uT8H"}
 5:null
