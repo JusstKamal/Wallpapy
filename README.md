@@ -181,7 +181,7 @@ I built this scratching my own itch and figured others might find it useful too.
 
 ## License
 
-Custom Non-Commercial License — see [LICENSE](./LICENSE) file.
+Free to use and modify. No commercial use. No rebranding. Just mention [@jusstKamal](https://github.com/JusstKamal) — see [LICENSE](./LICENSE).
 
 ---
 
