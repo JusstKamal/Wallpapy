@@ -1,12 +1,12 @@
 # Wallpapy
 
-> _Wallpaper + Pappy. Built the day my son Hamza was born. Love you, buddy. 🍼_
+> _Wallpaper + Pappy. Built the day my son Hamza was born._
 
 ---
 
 ## Vibe Coded — Heads Up
 
-This app is, very clearly, vibe coded. It was built in a single day on almost no sleep. It works, and it works pretty well — but it's not perfect. There are probably bugs, rough edges, and things that make a senior dev's eye twitch. The desktop version in particular may have some quirks. Use it, enjoy it, and if something breaks, well... that's the vibe.
+This app is, very clearly, vibe coded. It was built in a single day on almost no sleep. It works, and it works pretty well — but it's not perfect. There are probably bugs and rough edges. Use it, enjoy it, and if something breaks, well... that's the vibe.
 
 ---
 
@@ -97,55 +97,22 @@ Hope you find it useful. And Hamza — if you ever read this — hi. 👋
 
 ---
 
-## Run It (Web App)
+## Use It
+
+**[https://jusstkamal.github.io/Wallpapy](https://jusstkamal.github.io/Wallpapy)** — free, no install, no account, just open and go.
+
+## Run It Locally
 
 Requires **Node.js 18+**.
 
 ```bash
-git clone https://github.com/YOUR_jusstKamal/wallpapy.git
+git clone https://github.com/JusstKamal/Wallpapy.git
 cd wallpapy
 npm install
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
-
-To build a static export:
-
-```bash
-npm run build
-# static output → /out
-```
-
----
-
-## Download the Desktop App
-
-Built with [Tauri v2](https://tauri.app) — native OS webview, no bundled Chromium. The whole app is around **3 MB**.
-
-| Platform                  | Download                                                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **macOS** (Apple Silicon) | [Wallpapy_0.1.0_aarch64.dmg](https://github.com/JusstKamal/Wallpapy/raw/main/releases/v0.1.0/Wallpapy_0.1.0_aarch64.dmg) |
-| **macOS** (Intel)         | _Not built yet_                                                                                                          |
-| **Windows**               | _Not built yet_                                                                                                          |
-
-**macOS note:** If Gatekeeper blocks it on first launch, right-click the `.app` → Open.
-
-**Windows note:** SmartScreen may warn about an unsigned app — click "More info → Run anyway." Code-signing is on the to-do list.
-
-### Build the desktop app yourself
-
-Requires [Rust](https://rustup.rs) in addition to Node.
-
-```bash
-npm install
-npm run tauri:build
-# .app + .dmg  →  src-tauri/target/release/bundle/macos/
-# .exe installer  →  src-tauri/target/release/bundle/windows/
-
-# Dev mode — native window with hot reload
-npm run tauri:dev
-```
 
 ---
 
@@ -158,7 +125,6 @@ npm run tauri:dev
 | Rendering        | WebGL2 (liquid glass) + Canvas 2D (standard + software glass)      |
 | Glass shader     | Custom 4-pass pipeline: background → v-blur → h-blur → composition |
 | Color extraction | k-means++ in the browser, no server needed                         |
-| Desktop          | Tauri v2 (Rust + OS webview)                                       |
 
 ---
 
