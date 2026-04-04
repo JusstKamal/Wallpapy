@@ -4,13 +4,17 @@
 
 ---
 
+## Vibe Coded — Heads Up
+
+This app is, very clearly, vibe coded. It was built in a single day on almost no sleep. It works, and it works pretty well — but it's not perfect. There are probably bugs, rough edges, and things that make a senior dev's eye twitch. The desktop version in particular may have some quirks. Use it, enjoy it, and if something breaks, well... that's the vibe.
+
+---
+
 ## The Story
 
 I built this in a single day — the same day my first child, **Hamza**, came into the world.
 
 Waiting at the hospital with too much adrenaline and not enough sleep, I kept seeing that viral pill-stack wallpaper style everywhere and thought: _someone should make a proper tool for this._ So I did. I named it **Wallpapy** — wallpaper, but make it dad energy.
-
-The whole thing — the renderer, the liquid glass WebGL pipeline, the color extractor, the dual-monitor export, the desktop app — came together in one chaotic, beautiful, sleep-deprived day. [Cursor](https://cursor.sh) and [Claude Code](https://claude.ai/claude-code) did a lot of the heavy lifting. The liquid glass effect was deeply inspired by [iyinchao's liquid-glass-studio](https://github.com/iyinchao/liquid-glass-studio) — could not have figured out the refraction math without that repo.
 
 I just wanted something that made it dead simple to generate that style, tweak every knob, and actually export something usable. Especially for those of us with dual monitors who are tired of stretched wallpapers.
 
@@ -98,7 +102,7 @@ Hope you find it useful. And Hamza — if you ever read this — hi. 👋
 Requires **Node.js 18+**.
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/wallpapy.git
+git clone https://github.com/YOUR_jusstKamal/wallpapy.git
 cd wallpapy
 npm install
 npm run dev
@@ -117,13 +121,13 @@ npm run build
 
 ## Download the Desktop App
 
-Built with [Tauri v2](https://tauri.app) — native OS webview, no bundled Chromium. The whole app is around **8 MB**.
+Built with [Tauri v2](https://tauri.app) — native OS webview, no bundled Chromium. The whole app is around **3 MB**.
 
-| Platform                  | Download                                                                                                                                                                           |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **macOS** (Apple Silicon) | [Wallpapy_0.1.0_aarch64.dmg](https://github.com/JusstKamal/Wallpapy/releases/download/v0.1.0/Wallpapy_0.1.0_aarch64.dmg)                                                         |
-| **macOS** (Intel)         | [Wallpapy_0.1.0_x64.dmg](https://github.com/JusstKamal/Wallpapy/releases/download/v0.1.0/Wallpapy_0.1.0_x64.dmg)                                                                 |
-| **Windows**               | [Wallpapy_0.1.0_x64-setup.exe](https://github.com/JusstKamal/Wallpapy/releases/download/v0.1.0/Wallpapy_0.1.0_x64-setup.exe)                                                     |
+| Platform                  | Download                                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **macOS** (Apple Silicon) | [Wallpapy_0.1.0_aarch64.dmg](https://github.com/JusstKamal/Wallpapy/raw/main/releases/v0.1.0/Wallpapy_0.1.0_aarch64.dmg) |
+| **macOS** (Intel)         | _Not built yet_                                                                                                          |
+| **Windows**               | _Not built yet_                                                                                                          |
 
 **macOS note:** If Gatekeeper blocks it on first launch, right-click the `.app` → Open.
 
