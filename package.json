@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "deploy": "next build && npx gh-pages -d out"
+    "deploy": "next build && npx gh-pages -d out -t"
   },
   "dependencies": {
     "next": "16.2.2",
