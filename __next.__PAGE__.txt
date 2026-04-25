@@ -1,6 +1,6 @@
 1:"$Sreact.fragment"
-2:I[57712,["/Wallpapy/_next/static/chunks/0dbhjjzl8qfwv.js","/Wallpapy/_next/static/chunks/0fjophz334t2v.js"],"default"]
+2:I[57712,["/Wallpapy/_next/static/chunks/0dbhjjzl8qfwv.js","/Wallpapy/_next/static/chunks/07fo2wm4afm4w.js"],"default"]
 3:I[97367,["/Wallpapy/_next/static/chunks/0dbhjjzl8qfwv.js"],"OutletBoundary"]
 4:"$Sreact.suspense"
-0:{"rsc":["$","$1","c",{"children":[["$","$L2",null,{}],[["$","script","script-0",{"src":"/Wallpapy/_next/static/chunks/0fjophz334t2v.js","async":true}]],["$","$L3",null,{"children":["$","$4",null,{"name":"Next.MetadataOutlet","children":"$@5"}]}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"9-Ac-psBA-4RJnOeXHcsc"}
+0:{"rsc":["$","$1","c",{"children":[["$","$L2",null,{}],[["$","script","script-0",{"src":"/Wallpapy/_next/static/chunks/07fo2wm4afm4w.js","async":true}]],["$","$L3",null,{"children":["$","$4",null,{"name":"Next.MetadataOutlet","children":"$@5"}]}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"9yN-XdhI1VnDzxQbjL8Hm"}
 5:null
