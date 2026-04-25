@@ -88,7 +88,10 @@ export function renderWallpaper(
     const pad = blur > 0 ? Math.ceil(blur * 3) : 0;
     const pw = width + pad * 2;
     const ph = height + pad * 2;
-    const imgScale = Math.max(pw / backgroundImage.naturalWidth, ph / backgroundImage.naturalHeight);
+    const imgScale = Math.max(
+      pw / backgroundImage.naturalWidth,
+      ph / backgroundImage.naturalHeight,
+    );
     const dw = backgroundImage.naturalWidth * imgScale;
     const dh = backgroundImage.naturalHeight * imgScale;
     const dx = (pw - dw) / 2;
@@ -446,6 +449,7 @@ export const ASPECT_RATIOS = [
   { label: "32:9", w: 32, h: 9, tag: "Super UW" },
   { label: "1:1", w: 1, h: 1, tag: "Square" },
   { label: "9:16", w: 9, h: 16, tag: "Portrait" },
+  { label: "16:18", w: 16, h: 18, tag: "Portrait" },
   { label: "9:19.5", w: 9, h: 19.5, tag: "Mobile" },
 ];
 
@@ -518,6 +522,9 @@ export const QUALITY_LEVELS = [
   { label: "1440p", base: 1440 },
   { label: "4K", base: 2160 },
   { label: "5K", base: 2880 },
+  { label: "6K", base: 3240 },
+  { label: "8K", base: 4320 },
+  { label: "10K", base: 5760 },
 ];
 
 export function getPixelDimensions(

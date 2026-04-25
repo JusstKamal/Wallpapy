@@ -436,6 +436,8 @@ export default function WallpaperGenerator() {
     config.qualityIndex,
     customAspect,
   );
+  const dualHalfW = Math.floor(exportW / 2);
+  const dualHalfH = Math.floor(exportH / 2);
   const ar = getAspectRatioParts(config.arIndex, customAspect);
 
   const [h] = hexToHsl(baseColor);
@@ -542,7 +544,13 @@ export default function WallpaperGenerator() {
     });
     requestAnimationFrame(() => syncDualPreview());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, bgImageElement, syncDualPreview, previewFramePx.w, previewFramePx.h]);
+  }, [
+    config,
+    bgImageElement,
+    syncDualPreview,
+    previewFramePx.w,
+    previewFramePx.h,
+  ]);
 
   // ── WebGL liquid glass preview ────────────────────────────────
   useEffect(() => {
@@ -588,7 +596,13 @@ export default function WallpaperGenerator() {
     glRendererRef.current.render(geo, glassForPreview, dpr, imageBg);
     requestAnimationFrame(() => syncDualPreview());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, bgImageElement, syncDualPreview, previewFramePx.w, previewFramePx.h]);
+  }, [
+    config,
+    bgImageElement,
+    syncDualPreview,
+    previewFramePx.w,
+    previewFramePx.h,
+  ]);
 
   // Dispose WebGL renderer when switching off
   useEffect(() => {
@@ -1704,20 +1718,31 @@ export default function WallpaperGenerator() {
           </Section>
 
           <Section label="Quality">
-            <div className="flex gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5">
               {QUALITY_LEVELS.map((q, i) => (
                 <button
                   key={q.label}
                   onClick={() => set("qualityIndex", i)}
-                  className={`flex-1 py-1.5 rounded-lg border text-[12px] font-mono transition-colors ${config.qualityIndex === i ? "border-white/20 bg-white/[0.08] text-white" : "border-white/[0.06] text-white/30 hover:text-white/50"}`}
+                  className={`rounded-lg border py-2 text-[12px] font-mono transition-colors ${config.qualityIndex === i ? "border-white/20 bg-white/[0.08] text-white" : "border-white/[0.06] text-white/30 hover:text-white/50"}`}
                 >
                   {q.label}
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-white/20 mt-2 text-center font-mono">
-              {exportW} × {exportH}px
-            </p>
+            {config.dualMonitor ? (
+              <p className="mt-2 text-center font-mono text-[11px] text-white/20">
+                Full image: {exportW} × {exportH}px
+                <br />
+                Per screen:{" "}
+                {config.dualSplit === "left-right"
+                  ? `${dualHalfW} × ${exportH}px`
+                  : `${exportW} × ${dualHalfH}px`}
+              </p>
+            ) : (
+              <p className="mt-2 text-center font-mono text-[11px] text-white/20">
+                Single screen: {exportW} × {exportH}px
+              </p>
+            )}
           </Section>
 
           <Section label="Dual monitor">
@@ -1730,19 +1755,27 @@ export default function WallpaperGenerator() {
                 onClick={() =>
                   setConfig((prev) => {
                     if (!prev.dualMonitor) {
-                      const ar32x9 = ASPECT_RATIOS.findIndex(
-                        (a) => a.w === 32 && a.h === 9,
+                      const wantsTopBottom = prev.dualSplit === "top-bottom";
+                      const targetAspect = wantsTopBottom
+                        ? { w: 16, h: 18 }
+                        : { w: 32, h: 9 };
+                      const targetAspectIndex = ASPECT_RATIOS.findIndex(
+                        (a) => a.w === targetAspect.w && a.h === targetAspect.h,
                       );
                       const q5k = QUALITY_LEVELS.findIndex(
                         (q) => q.label === "5K",
                       );
                       const { w, h } =
-                        ar32x9 >= 0 ? ASPECT_RATIOS[ar32x9] : { w: 32, h: 9 };
+                        targetAspectIndex >= 0
+                          ? ASPECT_RATIOS[targetAspectIndex]
+                          : targetAspect;
                       return {
                         ...prev,
                         dualMonitor: true,
-                        dualSplit: "left-right",
-                        arIndex: ar32x9 >= 0 ? ar32x9 : 2,
+                        arIndex:
+                          targetAspectIndex >= 0
+                            ? targetAspectIndex
+                            : prev.arIndex,
                         qualityIndex: q5k >= 0 ? q5k : 3,
                         stackDirection: stackDirectionForAspectRatio(w, h),
                       };
@@ -1778,7 +1811,29 @@ export default function WallpaperGenerator() {
                 }
                 value={config.dualSplit}
                 onChange={(v) =>
-                  set("dualSplit", v as "left-right" | "top-bottom")
+                  setConfig((prev) => {
+                    const split = v as "left-right" | "top-bottom";
+                    const targetAspect =
+                      split === "top-bottom"
+                        ? { w: 16, h: 18 }
+                        : { w: 32, h: 9 };
+                    const targetAspectIndex = ASPECT_RATIOS.findIndex(
+                      (a) => a.w === targetAspect.w && a.h === targetAspect.h,
+                    );
+                    const { w, h } =
+                      targetAspectIndex >= 0
+                        ? ASPECT_RATIOS[targetAspectIndex]
+                        : targetAspect;
+                    return {
+                      ...prev,
+                      dualSplit: split,
+                      arIndex:
+                        targetAspectIndex >= 0
+                          ? targetAspectIndex
+                          : prev.arIndex,
+                      stackDirection: stackDirectionForAspectRatio(w, h),
+                    };
+                  })
                 }
               />
             )}
@@ -1857,48 +1912,48 @@ export default function WallpaperGenerator() {
                   height: previewFramePx.h > 0 ? previewFramePx.h : undefined,
                 }}
               >
-              {/* Canvas2D — full frame; hidden visually when dual (still rendered for split source) */}
-              <canvas
-                ref={canvasRef}
-                className={
-                  config.dualMonitor
-                    ? "absolute inset-0 block h-full w-full opacity-0 pointer-events-none"
-                    : "block h-full w-full"
-                }
-                style={{ display: config.liquidGlass ? "none" : "block" }}
-              />
-              {/* WebGL */}
-              <canvas
-                ref={glCanvasRef}
-                className={
-                  config.dualMonitor
-                    ? "absolute inset-0 block h-full w-full opacity-0 pointer-events-none"
-                    : "block h-full w-full"
-                }
-                style={{ display: config.liquidGlass ? "block" : "none" }}
-              />
-              {config.dualMonitor && (
-                <div
-                  className={`absolute inset-0 flex min-h-0 min-w-0 bg-[#0a0a0a] p-2 sm:p-2.5 ${
-                    config.dualSplit === "left-right"
-                      ? "flex-row gap-2 sm:gap-3"
-                      : "flex-col gap-2 sm:gap-3"
-                  }`}
-                >
-                  <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg sm:rounded-xl">
-                    <canvas
-                      ref={dualCanvasARef}
-                      className="absolute inset-0 block h-full w-full"
-                    />
+                {/* Canvas2D — full frame; hidden visually when dual (still rendered for split source) */}
+                <canvas
+                  ref={canvasRef}
+                  className={
+                    config.dualMonitor
+                      ? "absolute inset-0 block h-full w-full opacity-0 pointer-events-none"
+                      : "block h-full w-full"
+                  }
+                  style={{ display: config.liquidGlass ? "none" : "block" }}
+                />
+                {/* WebGL */}
+                <canvas
+                  ref={glCanvasRef}
+                  className={
+                    config.dualMonitor
+                      ? "absolute inset-0 block h-full w-full opacity-0 pointer-events-none"
+                      : "block h-full w-full"
+                  }
+                  style={{ display: config.liquidGlass ? "block" : "none" }}
+                />
+                {config.dualMonitor && (
+                  <div
+                    className={`absolute inset-0 flex min-h-0 min-w-0 bg-[#0a0a0a] p-2 sm:p-2.5 ${
+                      config.dualSplit === "left-right"
+                        ? "flex-row gap-2 sm:gap-3"
+                        : "flex-col gap-2 sm:gap-3"
+                    }`}
+                  >
+                    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg sm:rounded-xl">
+                      <canvas
+                        ref={dualCanvasARef}
+                        className="absolute inset-0 block h-full w-full"
+                      />
+                    </div>
+                    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg sm:rounded-xl">
+                      <canvas
+                        ref={dualCanvasBRef}
+                        className="absolute inset-0 block h-full w-full"
+                      />
+                    </div>
                   </div>
-                  <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg sm:rounded-xl">
-                    <canvas
-                      ref={dualCanvasBRef}
-                      className="absolute inset-0 block h-full w-full"
-                    />
-                  </div>
-                </div>
-              )}
+                )}
               </div>
             </div>
             <div className="flex max-w-full shrink-0 flex-wrap items-center justify-center gap-x-2 gap-y-1 px-1">
