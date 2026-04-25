@@ -35,6 +35,26 @@ export function PillIcon() {
   );
 }
 
+export function CloseSmIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      className={className}
+      aria-hidden
+    >
+      <path
+        d="M2.5 2.5l7 7M9.5 2.5l-7 7"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function DownloadIcon() {
   return (
     <svg
@@ -49,44 +69,6 @@ export function DownloadIcon() {
       aria-hidden
     >
       <path d="M7 1v8M4 6l3 3 3-3M2 11h10" />
-    </svg>
-  );
-}
-
-export function EyedropperIcon() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M11 2a2.83 2.83 0 0 1 4 4l-1.5 1.5-4-4L11 2Z" />
-      <path d="M9.5 3.5 3 10l-.5 3.5L6 13l6.5-6.5" />
-      <path d="m2 14 1-1" />
-    </svg>
-  );
-}
-
-export function ShuffleIcon() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M10 3h3v3M3 13l10-10M13 10v3h-3M3 3l4 4" />
     </svg>
   );
 }

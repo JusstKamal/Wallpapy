@@ -1,3 +1,4 @@
+import type { BackgroundImageCrop } from "./backgroundCrop";
 import { wallpaperBackgroundFromBase } from "./colorUtils";
 import { RenderPass, computeGaussianWeights, hexToVec3 } from "./glUtils";
 import { QUALITY_LEVELS, type StackLayerOrder } from "./pillRenderer";
@@ -119,6 +120,30 @@ function coverFitDrawImage(
   ctx.drawImage(img, dx, dy, dw, dh);
 }
 
+function drawCroppedToBox(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  crop: BackgroundImageCrop,
+  targetW: number,
+  targetH: number,
+) {
+  if (crop.w < 1 || crop.h < 1) {
+    coverFitDrawImage(ctx, img, targetW, targetH);
+    return;
+  }
+  ctx.drawImage(
+    img,
+    crop.x,
+    crop.y,
+    crop.w,
+    crop.h,
+    0,
+    0,
+    targetW,
+    targetH,
+  );
+}
+
 export class LiquidGlassRenderer {
   private gl: WebGL2RenderingContext;
   private bgPass: RenderPass;
@@ -128,6 +153,7 @@ export class LiquidGlassRenderer {
   private w = 0;
   private h = 0;
   private bgImage: HTMLImageElement | null = null;
+  private bgCrop: BackgroundImageCrop | null = null;
   private bgImageTexture: WebGLTexture | null = null;
   private bgBlur = 0;
   /** 1×1 transparent dummy so u_bgTexture is always bound to a valid texture */
@@ -188,11 +214,19 @@ export class LiquidGlassRenderer {
       if (this.bgImageTexture) {
         gl.deleteTexture(this.bgImageTexture);
       }
-      this.bgImageTexture = this.createBgTexture(this.bgImage, this.bgBlur);
+      this.bgImageTexture = this.createBgTexture(
+        this.bgImage,
+        this.bgBlur,
+        this.bgCrop,
+      );
     }
   }
 
-  private createBgTexture(img: HTMLImageElement, blur: number): WebGLTexture {
+  private createBgTexture(
+    img: HTMLImageElement,
+    blur: number,
+    crop: BackgroundImageCrop | null,
+  ): WebGLTexture {
     const gl = this.gl;
     // Draw on a padded canvas so blur doesn't darken edges, then crop to w×h
     const pad = blur > 0 ? Math.ceil(blur * 3) : 0;
@@ -203,7 +237,11 @@ export class LiquidGlassRenderer {
     padded.height = ph;
     const pctx = padded.getContext("2d")!;
     if (blur > 0) pctx.filter = `blur(${blur}px)`;
-    coverFitDrawImage(pctx, img, pw, ph);
+    if (crop && crop.w > 0 && crop.h > 0) {
+      drawCroppedToBox(pctx, img, crop, pw, ph);
+    } else {
+      coverFitDrawImage(pctx, img, pw, ph);
+    }
     pctx.filter = "none";
 
     // Crop center back to w×h
@@ -226,26 +264,34 @@ export class LiquidGlassRenderer {
     return tex;
   }
 
-  setBackgroundImage(img: HTMLImageElement | null) {
+  setBackgroundImage(
+    img: HTMLImageElement | null,
+    crop: BackgroundImageCrop | null = null,
+  ) {
     const gl = this.gl;
     if (this.bgImageTexture) {
       gl.deleteTexture(this.bgImageTexture);
       this.bgImageTexture = null;
     }
     this.bgImage = img;
+    this.bgCrop = crop;
     if (img && this.w > 0 && this.h > 0) {
-      this.bgImageTexture = this.createBgTexture(img, this.bgBlur);
+      this.bgImageTexture = this.createBgTexture(img, this.bgBlur, this.bgCrop);
     }
   }
 
   render(geo: PillGeometry, params: GlassParams, dpr = 1, imageBg?: ImageBgParams) {
-    // Recreate bg texture if blur changed
+    // Recreate bg texture if blur (or source) changed
     if (this.bgImage && imageBg) {
       const newBlur = Math.max(0, imageBg.blur ?? 0);
       if (newBlur !== this.bgBlur) {
         this.bgBlur = newBlur;
         if (this.bgImageTexture) this.gl.deleteTexture(this.bgImageTexture);
-        this.bgImageTexture = this.createBgTexture(this.bgImage, this.bgBlur);
+        this.bgImageTexture = this.createBgTexture(
+          this.bgImage,
+          this.bgBlur,
+          this.bgCrop,
+        );
       }
     }
 

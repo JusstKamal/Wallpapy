@@ -28,8 +28,6 @@ Hope you find it useful. And Hamza — if you ever read this — hi. 👋
 
 ![Wallpapy — color palette and glass controls](./screenshots/screenshot-2.png)
 
-![Wallpapy — color picker from image](./screenshots/screenshot-3.png)
-
 ---
 
 ## Features
@@ -39,7 +37,6 @@ Hope you find it useful. And Hamza — if you ever read this — hi. 👋
 - Single-color mode — generates a full dark-to-light lightness ramp from one pick
 - Multi-stop gradient palette (up to 8 color stops) blended across the pill stack
 - Drag to reorder stops
-- **Pick colors from a photo** — upload any image, k-means++ auto-places eyedroppers on the dominant colors, then drag each marker to fine-tune the exact pixel you want. Add or remove stops live inside the picker, with a live wallpaper preview right next to the image
 
 ### 💎 Liquid Glass
 

@@ -29,6 +29,8 @@ export const DEFAULT: Config = {
   dualMonitor: false,
   dualSplit: "left-right",
   backgroundImage: null,
+  backgroundImageCrop: null,
+  backgroundImageFileName: null,
   backgroundTintColorIndex: 0,
   backgroundBlur: 0,
 };

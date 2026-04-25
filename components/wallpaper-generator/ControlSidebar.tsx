@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import type { BackgroundImageCrop } from "@/lib/backgroundCrop";
 import { generatePillColorsFromPalette } from "@/lib/colorUtils";
 import type { ExportBitDepth } from "@/lib/exportBitDepth";
 import { GLASS_DEFAULTS } from "@/lib/liquidGlassRenderer";
@@ -14,10 +16,11 @@ import {
   QUALITY_LEVELS,
   type StackLayerOrder,
 } from "@/lib/pillRenderer";
+import { BackgroundImageCropModal } from "./BackgroundImageCropModal";
 import { stackDirectionForAspectRatio } from "./geometry";
 import type { WallpapyModel } from "./useWallpaperGenerator";
 import { AspectRatioThumb } from "./ui/AspectRatioThumb";
-import { EyedropperIcon, PaletteDragHandleIcon } from "./ui/icons";
+import { CloseSmIcon, PaletteDragHandleIcon } from "./ui/icons";
 import { LabeledSlider } from "./ui/LabeledSlider";
 import { Section } from "./ui/Section";
 import { HStackIcon, VStackIcon } from "./ui/StackDirectionIcons";
@@ -43,20 +46,42 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
     setPaletteDragFrom,
     applyPreset,
     colors,
-    handleExtractorUpload,
-    openExtractor,
-    handleBgImageUpload,
+    applyBackgroundWithCrop,
+    clearBackgroundImage,
     bgImageElement,
-    extractorImage,
+    ar,
     accent,
     exportW,
     exportH,
     dualHalfW,
     dualHalfH,
   } = w;
+
+  const [bgCropOpen, setBgCropOpen] = useState<{
+    dataUrl: string;
+    initial: BackgroundImageCrop | null;
+    fileName?: string;
+  } | null>(null);
+
+  const onBackgroundFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const pickedName = file.name;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setBgCropOpen({
+        dataUrl: reader.result as string,
+        initial: null,
+        fileName: pickedName,
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   return (
         <aside className="order-2 flex w-full max-h-[min(44vh,400px)] flex-none flex-col overflow-y-auto overscroll-contain border-t border-wp bg-wp-rail pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-h-[min(50vh,520px)] md:order-1 md:max-h-none md:w-80 md:shrink-0 md:flex-none md:border-t-0 md:border-r md:border-wp md:pb-0">
-          <Section label="Presets">
+          <Section label="Presets" accent={accent} collapsible defaultOpen>
             <div className="grid grid-cols-3 gap-2">
               {PRESETS.map((p, i) => (
                 <button
@@ -102,7 +127,7 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
             </div>
           </Section>
 
-          <Section label="Color">
+          <Section label="Color" accent={accent} collapsible defaultOpen>
             <p className="text-[11px] text-wp-3 mb-2 leading-snug">
               One color: lightness ramp. Multiple: gradient from first → last
               along the pill stack (background tint uses the first stop). Drag
@@ -227,14 +252,14 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                         type="button"
                         disabled={!canReorder}
                         onClick={() => removePaletteStop(i)}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-wp-2 text-[16px] leading-none text-wp-3 hover:border-wp-2 hover:text-wp-1 disabled:pointer-events-none disabled:opacity-30 disabled:hover:border-wp-2 disabled:hover:text-wp-3"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-wp-2 text-wp-3 hover:border-wp-2 hover:text-wp-1 disabled:pointer-events-none disabled:opacity-30 disabled:hover:border-wp-2 disabled:hover:text-wp-3"
                         aria-label={
                           canReorder
                             ? `Remove color ${i + 1}`
                             : "Remove (add another color stop to enable)"
                         }
                       >
-                        ×
+                        <CloseSmIcon className="shrink-0" />
                       </button>
                     </div>
                   </div>
@@ -249,26 +274,6 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
             >
               Add color stop
             </button>
-            {/* Extract colors from image */}
-            <label className="mt-1.5 flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-[12px] border border-wp-2 text-wp-2 hover:text-wp-1 hover:border-wp-2 cursor-pointer transition-colors">
-              <EyedropperIcon />
-              {extractorImage ? "Re-pick from image" : "Pick from image"}
-              <input
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={handleExtractorUpload}
-              />
-            </label>
-            {extractorImage && (
-              <button
-                type="button"
-                onClick={openExtractor}
-                className="mt-1 w-full py-1.5 rounded-lg text-[11px] border border-wp text-wp-3 hover:text-wp-2 hover:border-wp-2 transition-colors"
-              >
-                Adjust eyedroppers
-              </button>
-            )}
             <div
               className="flex mt-3 rounded-lg overflow-hidden border border-wp-2"
               style={{ height: 24, opacity: config.pillOpacity }}
@@ -277,44 +282,6 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                 <div key={i} className="flex-1" style={{ background: c }} />
               ))}
             </div>
-            {/* Background image upload */}
-            <div className="mt-3">
-              <p className="mb-1.5 text-[10px] uppercase tracking-wide text-wp-3">
-                Background image
-              </p>
-              {bgImageElement ? (
-                <div className="flex items-center gap-2">
-                  <div
-                    className="h-10 w-16 shrink-0 rounded-md overflow-hidden border border-wp-2"
-                    style={{
-                      backgroundImage: `url(${config.backgroundImage})`,
-                      backgroundSize: "cover",
-                      backgroundPosition: "center",
-                    }}
-                  />
-                  <span className="flex-1 text-[11px] text-wp-3 truncate">
-                    {bgImageElement.naturalWidth}×{bgImageElement.naturalHeight}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => set("backgroundImage", null)}
-                    className="text-[11px] text-wp-3 hover:text-wp-1 border border-wp-2 hover:border-wp-2 rounded-md px-2 py-1 transition-colors shrink-0"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ) : (
-                <label className="flex items-center justify-center w-full py-2 rounded-lg text-[12px] border border-wp-2 border-dashed text-wp-2 hover:text-wp-1 hover:border-wp-2 cursor-pointer transition-colors">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="sr-only"
-                    onChange={handleBgImageUpload}
-                  />
-                  Upload image
-                </label>
-              )}
-            </div>
 
             {/* Tint color selector — pick which palette color tints the background */}
             {config.paletteColors.length > 1 && (
@@ -322,7 +289,7 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                 <p className="mb-1.5 text-[10px] uppercase tracking-wide text-wp-3">
                   Tint color
                 </p>
-                <div className="flex gap-1.5 flex-wrap">
+                <div className="flex flex-wrap gap-1.5 py-0.5">
                   {config.paletteColors.map((c, i) => {
                     const selected =
                       i ===
@@ -335,7 +302,7 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                         key={i}
                         type="button"
                         onClick={() => set("backgroundTintColorIndex", i)}
-                        className="h-6 w-6 rounded-full transition-all"
+                        className="h-6 w-6 shrink-0 rounded-full transition-all"
                         style={{
                           background: c,
                           outline: selected
@@ -393,9 +360,79 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                 />
               </div>
             )}
+
+            <div className="mt-4 border-t border-wp pt-4">
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-wp-4">
+                Background image
+              </p>
+              {bgImageElement && config.backgroundImage ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="h-10 w-16 shrink-0 overflow-hidden rounded-md border border-wp-2"
+                      style={{
+                        backgroundImage: `url(${config.backgroundImage})`,
+                        backgroundSize: "cover",
+                        backgroundPosition: "center",
+                      }}
+                    />
+                    <span
+                      className="flex-1 truncate text-[11px] text-wp-2"
+                      title={config.backgroundImageFileName ?? undefined}
+                    >
+                      {config.backgroundImageFileName?.trim() || "Image"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={clearBackgroundImage}
+                      className="shrink-0 rounded-md border border-wp-2 px-2 py-1 text-[11px] text-wp-3 transition-colors hover:text-wp-1"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBgCropOpen({
+                          dataUrl: config.backgroundImage!,
+                          initial: config.backgroundImageCrop,
+                        })
+                      }
+                      className="flex-1 rounded-lg border border-wp-2 py-2 text-center text-[12px] text-wp-2 transition-colors hover:border-wp-3 hover:text-wp-1"
+                    >
+                      Adjust crop
+                    </button>
+                    <label className="flex flex-1 cursor-pointer items-center justify-center rounded-lg border border-wp-2 border-dashed py-2 text-center text-[12px] text-wp-2 transition-colors hover:border-wp-3 hover:text-wp-1 min-w-0">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={onBackgroundFile}
+                      />
+                      New image
+                    </label>
+                  </div>
+                </div>
+              ) : (
+                <label className="flex w-full cursor-pointer items-center justify-center rounded-lg border border-wp-2 border-dashed py-2.5 text-[12px] text-wp-2 transition-colors hover:border-wp-3 hover:text-wp-1">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={onBackgroundFile}
+                  />
+                  Choose image
+                </label>
+              )}
+              <p className="mt-2 text-[10px] leading-relaxed text-wp-4">
+                Cropping matches the “Aspect ratio” section below. Change that
+                first if you need a different frame, then re-crop here.
+              </p>
+            </div>
           </Section>
 
-          <Section label="Mode">
+          <Section label="Mode" accent={accent} collapsible defaultOpen>
             <SegmentedControl
               options={
                 [
@@ -405,6 +442,7 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
               }
               value={config.mode}
               onChange={(v) => set("mode", v as "dark" | "light")}
+              accent={accent}
             />
             <div className="mt-2">
               <SegmentedControl
@@ -416,6 +454,7 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                 }
                 value={config.direction}
                 onChange={(v) => set("direction", v as Config["direction"])}
+                accent={accent}
               />
             </div>
             <div className="mt-2">
@@ -436,11 +475,17 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                 }
                 value={config.stackLayerOrder}
                 onChange={(v) => set("stackLayerOrder", v as StackLayerOrder)}
+                accent={accent}
               />
             </div>
           </Section>
 
-          <Section label="Stack Direction">
+          <Section
+            label="Stack Direction"
+            accent={accent}
+            collapsible
+            defaultOpen
+          >
             <div className="flex gap-2">
               {(["horizontal", "vertical"] as const).map((d) => (
                 <button
@@ -465,7 +510,7 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
             </div>
           </Section>
 
-          <Section label="Pills">
+          <Section label="Pills" accent={accent} collapsible defaultOpen>
             <LabeledSlider
               label="Count"
               value={config.pillCount}
@@ -544,17 +589,11 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
             />
           </Section>
 
-          {/* ── Liquid Glass Toggle ─────────────────────── */}
-          <div className="px-4 py-4 border-b border-wp">
-            <div className="flex items-center justify-between mb-1">
-              <div>
-                <p className="text-[13px] font-medium text-wp-1">
-                  Liquid Glass
-                </p>
-                <p className="text-[11px] text-wp-4 mt-0.5">
-                  WebGL · Snell refraction · LCH glare
-                </p>
-              </div>
+          <Section label="Liquid Glass" accent={accent} collapsible defaultOpen>
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <p className="text-[11px] text-wp-4 leading-snug">
+                WebGL renderer with Snell refraction and LCH glare.
+              </p>
               <ToggleSwitch
                 checked={config.liquidGlass}
                 accent={accent}
@@ -568,44 +607,47 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                 }}
               />
             </div>
-          </div>
+            <div
+              className={`mt-2 ${config.liquidGlass ? "" : "pointer-events-none select-none opacity-45"}`}
+              aria-disabled={!config.liquidGlass}
+            >
+              <LabeledSlider
+                label="Thickness"
+                value={config.glass.refThickness}
+                min={1}
+                max={80}
+                step={0.5}
+                display={`${config.glass.refThickness.toFixed(0)}%`}
+                onChange={(v) => setGlass("refThickness", v)}
+                accent={accent}
+              />
+              <LabeledSlider
+                label="Factor"
+                value={config.glass.refFactor}
+                min={1}
+                max={4}
+                step={0.01}
+                display={config.glass.refFactor.toFixed(2)}
+                onChange={(v) => setGlass("refFactor", v)}
+                accent={accent}
+              />
+              <LabeledSlider
+                label="Dispersion"
+                value={config.glass.refDispersion}
+                min={0}
+                max={50}
+                step={0.5}
+                display={config.glass.refDispersion.toFixed(0)}
+                onChange={(v) => setGlass("refDispersion", v)}
+                accent={accent}
+              />
+            </div>
 
-          {/* ── Glass controls (only when liquid glass on) ── */}
-          {config.liquidGlass && (
-            <>
-              <Section label="Refraction">
-                <LabeledSlider
-                  label="Thickness"
-                  value={config.glass.refThickness}
-                  min={1}
-                  max={80}
-                  step={0.5}
-                  display={`${config.glass.refThickness.toFixed(0)}%`}
-                  onChange={(v) => setGlass("refThickness", v)}
-                  accent={accent}
-                />
-                <LabeledSlider
-                  label="Factor"
-                  value={config.glass.refFactor}
-                  min={1}
-                  max={4}
-                  step={0.01}
-                  display={config.glass.refFactor.toFixed(2)}
-                  onChange={(v) => setGlass("refFactor", v)}
-                  accent={accent}
-                />
-                <LabeledSlider
-                  label="Dispersion"
-                  value={config.glass.refDispersion}
-                  min={0}
-                  max={50}
-                  step={0.5}
-                  display={config.glass.refDispersion.toFixed(0)}
-                  onChange={(v) => setGlass("refDispersion", v)}
-                  accent={accent}
-                />
-              </Section>
-              <Section label="Fresnel">
+            <div className={config.liquidGlass ? "" : "pointer-events-none select-none opacity-45"}>
+              <div className="mt-3 border-t border-wp pt-3">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-wp-3">
+                  Fresnel
+                </p>
                 <LabeledSlider
                   label="Range"
                   value={config.glass.refFresnelRange}
@@ -636,8 +678,11 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                   onChange={(v) => setGlass("refFresnelFactor", v)}
                   accent={accent}
                 />
-              </Section>
-              <Section label="Glare">
+              </div>
+              <div className="mt-3 border-t border-wp pt-3">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-wp-3">
+                  Glare
+                </p>
                 <LabeledSlider
                   label="Range"
                   value={config.glass.glareRange}
@@ -698,8 +743,11 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                   onChange={(v) => setGlass("glareAngle", v)}
                   accent={accent}
                 />
-              </Section>
-              <Section label="Shadow">
+              </div>
+              <div className="mt-3 border-t border-wp pt-3">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-wp-3">
+                  Shadow
+                </p>
                 <LabeledSlider
                   label="Expand"
                   value={config.glass.shadowExpand}
@@ -740,8 +788,11 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                   onChange={(v) => setGlass("shadowY", v)}
                   accent={accent}
                 />
-              </Section>
-              <Section label="Glass Blur">
+              </div>
+              <div className="mt-3 border-t border-wp pt-3">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-wp-3">
+                  Glass Blur
+                </p>
                 <LabeledSlider
                   label="Radius"
                   value={config.glass.blurRadius}
@@ -761,19 +812,25 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                     onChange={(v) => setGlass("blurEdge", v)}
                   />
                 </div>
-              </Section>
-              <div className="px-4 py-3 border-b border-wp">
+              </div>
+              <div className="mt-3 border-t border-wp pt-3">
                 <button
-                  onClick={() => set("glass", { ...GLASS_DEFAULTS })}
-                  className="w-full py-1.5 text-[12px] text-wp-5 hover:text-wp-2 border border-wp hover:border-wp-2 rounded-lg transition-colors"
+                  type="button"
+                  onClick={() =>
+                    setConfig((prev) => ({
+                      ...prev,
+                      glass: { ...GLASS_DEFAULTS },
+                    }))
+                  }
+                  className="wp-interactive w-full rounded-lg border border-wp-2 bg-wp-fill px-3 py-2 text-[12px] font-medium text-wp-2 transition-colors hover:border-wp-3 hover:bg-wp-fill-2 hover:text-wp-1 active:scale-[0.99]"
                 >
                   Reset glass defaults
                 </button>
               </div>
-            </>
-          )}
+            </div>
+          </Section>
 
-          <Section label="Aspect Ratio">
+          <Section label="Aspect Ratio" accent={accent} collapsible defaultOpen>
             <div className="-mx-4 overflow-x-auto px-4 pb-0.5 md:mx-0 md:overflow-visible md:px-0">
               <div className="grid min-w-0 grid-cols-3 gap-1.5">
                 {ASPECT_RATIOS.map((a, i) => (
@@ -900,7 +957,12 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
             </div>
           </Section>
 
-          <Section label="Quality">
+          <Section
+            label="Quality"
+            accent={accent}
+            collapsible
+            defaultOpen={false}
+          >
             <div className="grid grid-cols-3 gap-1.5">
               {QUALITY_LEVELS.map((q, i) => (
                 <button
@@ -928,7 +990,7 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
             )}
           </Section>
 
-          <Section label="Dual monitor">
+          <Section label="Dual monitor" accent={accent} collapsible defaultOpen={false}>
             <div className="flex items-center justify-between mb-3">
               <span className="text-[12px] text-wp-2">
                 Split preview & export
@@ -1005,6 +1067,7 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
                     };
                   })
                 }
+                accent={accent}
               />
             )}
             <p className="text-[11px] text-wp-5 mt-2">
@@ -1016,7 +1079,7 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
             </p>
           </Section>
 
-          <Section label="Alternating stagger">
+          <Section label="Alternating stagger" accent={accent} collapsible defaultOpen={false}>
             <LabeledSlider
               label="Wobble"
               value={config.pillStagger}
@@ -1034,7 +1097,7 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
             </p>
           </Section>
 
-          <Section label="Export color depth">
+          <Section label="Export color depth" accent={accent} collapsible defaultOpen={false}>
             <SegmentedControl
               options={
                 [
@@ -1047,6 +1110,7 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
               onChange={(v) =>
                 set("exportBitDepth", Number(v) as ExportBitDepth)
               }
+              accent={accent}
             />
             <p className="text-[11px] text-wp-5 mt-2">
               Export applies per-channel quantization. PNG files use 8-bit
@@ -1054,6 +1118,26 @@ export function ControlSidebar({ w }: { w: WallpapyModel }) {
               / HDR displays.
             </p>
           </Section>
+
+        <BackgroundImageCropModal
+          open={bgCropOpen !== null}
+          dataUrl={bgCropOpen?.dataUrl ?? ""}
+          arW={ar.w}
+          arH={ar.h}
+          initialCrop={bgCropOpen?.initial ?? null}
+          accent={accent}
+          onClose={() => setBgCropOpen(null)}
+          onApply={(crop) => {
+            if (bgCropOpen) {
+              applyBackgroundWithCrop(
+                bgCropOpen.dataUrl,
+                crop,
+                bgCropOpen.fileName,
+              );
+            }
+            setBgCropOpen(null);
+          }}
+        />
         </aside>
   );
 }

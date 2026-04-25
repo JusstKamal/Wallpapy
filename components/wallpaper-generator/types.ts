@@ -33,6 +33,18 @@ export interface Config {
   backgroundBrightness: number;
   /** Base64 data URL of uploaded background image, or null for solid color. */
   backgroundImage: string | null;
+  /**
+   * Pixel rect on the source image (full data URL), same aspect as the wallpaper.
+   * Null: legacy full-image “cover + center” in the renderer.
+   */
+  backgroundImageCrop: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null;
+  /** Original file name from the file picker, for display. */
+  backgroundImageFileName: string | null;
   /** Index into paletteColors used for background tinting (default 0). */
   backgroundTintColorIndex: number;
   /** Gaussian blur radius in px applied to background image (0 = sharp). */

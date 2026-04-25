@@ -12,9 +12,6 @@ import {
   generatePillColorsFromPalette,
   hexToHsl,
   mixHexHsl,
-  extractInitialPickerPositions,
-  sampleCanvasColor,
-  type PickerPosition,
 } from "@/lib/colorUtils";
 import type { WallpaperPreset } from "@/lib/wallpaperPresets";
 import {
@@ -30,6 +27,8 @@ import {
   computePillGeometry,
   scaleGlassParamsToCanvas,
 } from "@/lib/liquidGlassRenderer";
+import { getDefaultBackgroundCrop } from "@/lib/backgroundCrop";
+import type { BackgroundImageCrop } from "@/lib/backgroundCrop";
 import { canvasToDataURLWithBitDepth } from "@/lib/exportBitDepth";
 import { DEFAULT, PREVIEW_FRAME_BORDER_GAP_X, PREVIEW_FRAME_BORDER_GAP_Y } from "./constants";
 import { fitAspectInsideBox } from "./geometry";
@@ -80,7 +79,7 @@ export function useWallpaperGenerator() {
       };
     });
 
-  const removePaletteStop = (index: number) =>
+  const removePaletteStop = (index: number) => {
     setConfig((prev) => {
       if (prev.paletteColors.length <= 1) return prev;
       return {
@@ -88,6 +87,7 @@ export function useWallpaperGenerator() {
         paletteColors: prev.paletteColors.filter((_, i) => i !== index),
       };
     });
+  };
 
   const reorderPaletteStops = (from: number, to: number) => {
     if (from === to) return;
@@ -111,173 +111,53 @@ export function useWallpaperGenerator() {
   useEffect(() => {
     if (!config.backgroundImage) {
       setBgImageElement(null);
-      glRendererRef.current?.setBackgroundImage(null);
       return;
     }
     const img = new Image();
     img.onload = () => {
       setBgImageElement(img);
-      glRendererRef.current?.setBackgroundImage(img);
     };
     img.src = config.backgroundImage;
   }, [config.backgroundImage]);
 
-  // ── Color extractor ──────────────────────────────────────────────
-  const [showExtractor, setShowExtractor] = useState(false);
-  const [extractorDataUrl, setExtractorDataUrl] = useState<string | null>(null);
-  const [extractorImage, setExtractorImage] = useState<HTMLImageElement | null>(
-    null,
-  );
-  const [extractorPositions, setExtractorPositions] = useState<
-    PickerPosition[]
-  >([]);
-  const [extractorDragging, setExtractorDragging] = useState<number | null>(
-    null,
-  );
-  /** Downsampled canvas used for fast pixel sampling during drag */
-  const extractorCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  /** Ref to the displayed <img> element inside the modal for hit-testing */
-  const extractorImgRef = useRef<HTMLImageElement | null>(null);
-  /** Small canvas shown as wallpaper preview inside the modal */
-  const extractorPreviewRef = useRef<HTMLCanvasElement | null>(null);
-
-  // Keep the modal's wallpaper preview in sync with the main canvas
+  /** WebGL: push image + crop whenever the GL renderer or source changes. */
   useEffect(() => {
-    if (!showExtractor) return;
-    // Double-rAF so the main canvas effects have had time to paint first
-    const id = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const dst = extractorPreviewRef.current;
-        if (!dst) return;
-        const src = config.liquidGlass
-          ? glCanvasRef.current
-          : canvasRef.current;
-        if (!src) return;
-        dst.width = dst.offsetWidth || 240;
-        dst.height = dst.offsetHeight || 135;
-        dst.getContext("2d")!.drawImage(src, 0, 0, dst.width, dst.height);
-      });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [config, showExtractor]);
+    if (!config.liquidGlass) return;
+    const r = glRendererRef.current;
+    if (!r) return;
+    if (bgImageElement) {
+      r.setBackgroundImage(bgImageElement, config.backgroundImageCrop);
+    } else {
+      r.setBackgroundImage(null, null);
+    }
+  }, [
+    config.liquidGlass,
+    bgImageElement,
+    config.backgroundImageCrop,
+  ]);
 
-  const openExtractor = () => setShowExtractor(true);
+  const applyBackgroundWithCrop = useCallback(
+    (dataUrl: string, crop: BackgroundImageCrop, fileName?: string) => {
+      setConfig((prev) => ({
+        ...prev,
+        backgroundImage: dataUrl,
+        backgroundImageCrop: crop,
+        ...(fileName !== undefined
+          ? { backgroundImageFileName: fileName }
+          : {}),
+      }));
+    },
+    [],
+  );
 
-  const handleExtractorUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      setExtractorDataUrl(dataUrl);
-      const img = new Image();
-      img.onload = () => {
-        setExtractorImage(img);
-        // Build downsampled sampler canvas (max 512px)
-        const maxSide = 512;
-        const scale = Math.min(
-          1,
-          maxSide / Math.max(img.naturalWidth, img.naturalHeight),
-        );
-        const cw = Math.max(1, Math.round(img.naturalWidth * scale));
-        const ch = Math.max(1, Math.round(img.naturalHeight * scale));
-        const cvs = document.createElement("canvas");
-        cvs.width = cw;
-        cvs.height = ch;
-        cvs.getContext("2d")!.drawImage(img, 0, 0, cw, ch);
-        extractorCanvasRef.current = cvs;
-
-        const count = config.paletteColors.length;
-        const positions = extractInitialPickerPositions(img, count);
-        setExtractorPositions(positions);
-        const newColors = positions.map((p) =>
-          sampleCanvasColor(cvs, p.x, p.y),
-        );
-        setConfig((prev) => ({ ...prev, paletteColors: newColors }));
-        setShowExtractor(true);
-      };
-      img.src = dataUrl;
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  };
-
-  const reshuffleExtractor = () => {
-    if (!extractorImage || !extractorCanvasRef.current) return;
-    const count = config.paletteColors.length;
-    const positions = extractInitialPickerPositions(extractorImage, count);
-    setExtractorPositions(positions);
-    const newColors = positions.map((p) =>
-      sampleCanvasColor(extractorCanvasRef.current!, p.x, p.y),
-    );
-    setConfig((prev) => ({ ...prev, paletteColors: newColors }));
-  };
-
-  const addExtractorStop = () => {
-    if (config.paletteColors.length >= 8 || !extractorCanvasRef.current) return;
-    // Place the new marker at the center of the image
-    const x = 0.5,
-      y = 0.5;
-    const color = sampleCanvasColor(extractorCanvasRef.current, x, y);
-    setExtractorPositions((prev) => [...prev, { x, y }]);
+  const clearBackgroundImage = useCallback(() => {
     setConfig((prev) => ({
       ...prev,
-      paletteColors: [...prev.paletteColors, color],
+      backgroundImage: null,
+      backgroundImageCrop: null,
+      backgroundImageFileName: null,
     }));
-  };
-
-  const removeExtractorStop = () => {
-    if (config.paletteColors.length <= 1) return;
-    setExtractorPositions((prev) => prev.slice(0, -1));
-    setConfig((prev) => ({
-      ...prev,
-      paletteColors: prev.paletteColors.slice(0, -1),
-    }));
-  };
-
-  const handleMarkerPointerDown = (
-    e: React.PointerEvent<HTMLDivElement>,
-    idx: number,
-  ) => {
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setExtractorDragging(idx);
-  };
-
-  const handleMarkerPointerMove = (
-    e: React.PointerEvent<HTMLDivElement>,
-    idx: number,
-  ) => {
-    if (
-      extractorDragging !== idx ||
-      !extractorImgRef.current ||
-      !extractorCanvasRef.current
-    )
-      return;
-    const rect = extractorImgRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    const newPositions = [...extractorPositions];
-    newPositions[idx] = { x, y };
-    setExtractorPositions(newPositions);
-    const color = sampleCanvasColor(extractorCanvasRef.current, x, y);
-    setPaletteColor(idx, color);
-  };
-
-  const handleMarkerPointerUp = () => setExtractorDragging(null);
-
-  const handleBgImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      set("backgroundImage", dataUrl);
-    };
-    reader.readAsDataURL(file);
-    // Reset input so the same file can be re-uploaded
-    e.target.value = "";
-  };
+  }, []);
 
   const baseColor = config.paletteColors[0] ?? "#6D28D9";
   const tintColor =
@@ -304,6 +184,29 @@ export function useWallpaperGenerator() {
   const dualHalfW = Math.floor(exportW / 2);
   const dualHalfH = Math.floor(exportH / 2);
   const ar = getAspectRatioParts(config.arIndex, customAspect);
+
+  const arKey = `${ar.w}:${ar.h}`;
+  const arKeyRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!config.backgroundImage || !bgImageElement) {
+      arKeyRef.current = null;
+      return;
+    }
+    if (arKeyRef.current === null) {
+      arKeyRef.current = arKey;
+      return;
+    }
+    if (arKeyRef.current !== arKey) {
+      arKeyRef.current = arKey;
+      const c = getDefaultBackgroundCrop(
+        bgImageElement.naturalWidth,
+        bgImageElement.naturalHeight,
+        ar.w,
+        ar.h,
+      );
+      setConfig((prev) => ({ ...prev, backgroundImageCrop: c }));
+    }
+  }, [arKey, ar.w, ar.h, config.backgroundImage, bgImageElement]);
 
   const [h] = hexToHsl(baseColor);
   const accent = `hsl(${h}, 70%, 65%)`;
@@ -403,6 +306,7 @@ export function useWallpaperGenerator() {
       backgroundTint: config.backgroundTint,
       backgroundBrightness: config.backgroundBrightness,
       backgroundImage: bgImageElement,
+      backgroundImageCrop: config.backgroundImageCrop,
       backgroundBlur: config.backgroundBlur,
       pillStagger: config.pillStagger,
       liquidGlass: false,
@@ -434,7 +338,10 @@ export function useWallpaperGenerator() {
         canvas.height = ch;
         glRendererRef.current = new LiquidGlassRenderer(canvas);
         if (bgImageElement) {
-          glRendererRef.current.setBackgroundImage(bgImageElement);
+          glRendererRef.current.setBackgroundImage(
+            bgImageElement,
+            config.backgroundImageCrop,
+          );
         }
       } catch (e) {
         console.error("WebGL init failed:", e);
@@ -574,7 +481,10 @@ export function useWallpaperGenerator() {
         );
         renderer = new LiquidGlassRenderer(offscreen);
         if (bgImageElement) {
-          renderer.setBackgroundImage(bgImageElement);
+          renderer.setBackgroundImage(
+            bgImageElement,
+            config.backgroundImageCrop,
+          );
         }
         const geo = computePillGeometry(exportW, exportH, ...pillGeoArgs);
         const exportImageBg = bgImageElement
@@ -612,6 +522,7 @@ export function useWallpaperGenerator() {
         backgroundTint: config.backgroundTint,
         backgroundBrightness: config.backgroundBrightness,
         backgroundImage: bgImageElement,
+        backgroundImageCrop: config.backgroundImageCrop,
         backgroundBlur: config.backgroundBlur,
         pillStagger: config.pillStagger,
         liquidGlass: false,
@@ -680,28 +591,8 @@ export function useWallpaperGenerator() {
     paletteDropTarget,
     setPaletteDropTarget,
     bgImageElement,
-    showExtractor,
-    setShowExtractor,
-    extractorDataUrl,
-    setExtractorDataUrl,
-    extractorImage,
-    setExtractorImage,
-    extractorPositions,
-    setExtractorPositions,
-    extractorDragging,
-    setExtractorDragging,
-    extractorCanvasRef,
-    extractorImgRef,
-    extractorPreviewRef,
-    handleExtractorUpload,
-    openExtractor,
-    reshuffleExtractor,
-    addExtractorStop,
-    removeExtractorStop,
-    handleMarkerPointerDown,
-    handleMarkerPointerMove,
-    handleMarkerPointerUp,
-    handleBgImageUpload,
+    applyBackgroundWithCrop,
+    clearBackgroundImage,
     colors,
     tintColor,
     customAspect,

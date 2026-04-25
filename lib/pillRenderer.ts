@@ -1,3 +1,4 @@
+import type { BackgroundImageCrop } from "./backgroundCrop";
 import { hexToHsl, wallpaperBackgroundFromBase } from "./colorUtils";
 
 /** Which end of the stack is painted last (in front) when pills overlap. */
@@ -28,6 +29,11 @@ export interface WallpaperConfig {
   backgroundBrightness: number;
   /** Optional uploaded background image (drawn cover-fit before pills) */
   backgroundImage: HTMLImageElement | null;
+  /**
+   * Source pixel rect on the image. When null, legacy “cover from full image + center”
+   * is used. When set, should match the canvas aspect (width/height).
+   */
+  backgroundImageCrop: BackgroundImageCrop | null;
   /** Gaussian blur radius in px applied to background image (0 = sharp) */
   backgroundBlur: number;
   /**
@@ -70,6 +76,7 @@ export function renderWallpaper(
     backgroundTint,
     backgroundBrightness,
     backgroundImage,
+    backgroundImageCrop,
     backgroundBlur,
     pillStagger,
     liquidGlass,
@@ -82,26 +89,33 @@ export function renderWallpaper(
 
   // --- Background ---
   if (backgroundImage) {
-    // Draw uploaded image cover-fit with optional blur.
+    // Draw uploaded image: optional explicit crop, else cover-fit from full image.
     // Use a padded offscreen canvas so the blur doesn't darken edges.
     const blur = Math.max(0, backgroundBlur);
     const pad = blur > 0 ? Math.ceil(blur * 3) : 0;
     const pw = width + pad * 2;
     const ph = height + pad * 2;
-    const imgScale = Math.max(
-      pw / backgroundImage.naturalWidth,
-      ph / backgroundImage.naturalHeight,
-    );
-    const dw = backgroundImage.naturalWidth * imgScale;
-    const dh = backgroundImage.naturalHeight * imgScale;
-    const dx = (pw - dw) / 2;
-    const dy = (ph - dh) / 2;
+    const iw = backgroundImage.naturalWidth;
+    const ih = backgroundImage.naturalHeight;
     const offscreen = document.createElement("canvas");
     offscreen.width = pw;
     offscreen.height = ph;
     const offCtx = offscreen.getContext("2d")!;
     if (blur > 0) offCtx.filter = `blur(${blur}px)`;
-    offCtx.drawImage(backgroundImage, dx, dy, dw, dh);
+    if (backgroundImageCrop && backgroundImageCrop.w > 0 && backgroundImageCrop.h > 0) {
+      const cx = backgroundImageCrop.x;
+      const cy = backgroundImageCrop.y;
+      const cw = backgroundImageCrop.w;
+      const ch = backgroundImageCrop.h;
+      offCtx.drawImage(backgroundImage, cx, cy, cw, ch, 0, 0, pw, ph);
+    } else {
+      const imgScale = Math.max(pw / iw, ph / ih);
+      const dw = iw * imgScale;
+      const dh = ih * imgScale;
+      const dx = (pw - dw) / 2;
+      const dy = (ph - dh) / 2;
+      offCtx.drawImage(backgroundImage, dx, dy, dw, dh);
+    }
     offCtx.filter = "none";
     // Crop center onto main canvas
     ctx.drawImage(offscreen, pad, pad, width, height, 0, 0, width, height);

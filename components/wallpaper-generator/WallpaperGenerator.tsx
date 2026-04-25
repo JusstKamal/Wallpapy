@@ -1,7 +1,6 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ColorExtractorModal } from "./ColorExtractorModal";
 import { ControlSidebar } from "./ControlSidebar";
 import { ExportBusyOverlay } from "./ui/ExportBusyOverlay";
 import { useWallpaperGenerator } from "./useWallpaperGenerator";
@@ -27,7 +26,6 @@ export default function WallpaperGenerator() {
         <WallpaperPreviewColumn w={w} />
       </div>
 
-      <ColorExtractorModal w={w} />
     </motion.div>
   );
 }
